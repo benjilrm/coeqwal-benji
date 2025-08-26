@@ -22,7 +22,7 @@ Data/
 /*.Rcheck/
 
 # RStudio files
-.Rproj
+*.Rproj
 
 # produced vignettes
 vignettes/*.html
