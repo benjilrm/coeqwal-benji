@@ -14,6 +14,9 @@ suppressPackageStartupMessages({
   suppressWarnings({
   library(tidyverse)   # Data wrangling
   library(here)        # File management
+  library(readxl)      # Read excel files
+  library(janitor)     # Clean up dataframe column names
+  library(lubridate)   # Extract years from dates
   })})
 ```
 
@@ -26,10 +29,212 @@ knitr::opts_knit$set(root.dir = here())
 # Import data
 
 ## Network data
-Draft version of a network dataset of public water systems. Note that the data is by source so PWSIDs are repeated for as many water sources as the system has. 
+Draft version of a network dataset of public water systems compiled by the team. 
 
 ```{r}
-read.csv("")
+network_raw = read_excel("Data/Source/Draft_networkdata_Summer2025_Aug25.xlsx")
 ```
 
+Note that the data is by source, so PWSIDs are repeated for as many water sources as the system has. 
+Since we want the final output to just be a dataframe of the 2 groundwater variables by PWSID (which we can join back into the master dataframe by PWSIDlater once it's finalised), let's take a vector of the unique PWSIDs
+```{r}
+nrow(network_raw)
+n_distinct(network_raw$PWSID)
+
+network_pwsids = data.frame(pwsid = unique(network_raw$PWSID))
+```
+Although the dataset has 1117 rows, there are 861 unique PWSIDs, which we've now saved into a vector without duplicates. 
+
+## SAFER clearinghouse data
+This is an internal state water board dataset they shared with us for this project. All documentation is located in [this Google Drive folder](https://drive.google.com/drive/folders/1gxMrGeaOA_xtGb1zf97Z79EFEwKcIpCG).
+
+Unfortunately there is no data dictionary, but [Jenny has worked on developing one](https://docs.google.com/spreadsheets/d/1ulStajU7D1eFu2m3V0fTDtcm3PGNlneX/edit?gid=631545570#gid=631545570).
+
+There is a tab in this data for "source reporting" that has fields for water type and facility type. I think we could triangulate for groundwater and well to figure out which systems have wells? There might be other ways to do this too. My sense is there is not water quality data in this one but I could be wrong about there (there are a ton of fields)
+
+```{r}
+read.csv("Data/Source/SAFER clearinghouse/active_cws_04_2025.csv")
+clearinghouse_raw = read_excel("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", sheet = "SourceReporting")
+
+save(clearinghouse_raw, file = "Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+```
+
+Filter for:
+- active facility status? (in Jenny's script)
+- groundwater (but what about gw under the direct influence of surface water--does that count?)
+- exclude any facility types within groundwater? (ex: storage, treatment plant, non-piped, purchased)
+- bring in clearinghouse water type (ex: some wells are listed as 'spring water')
+- facility availability (ex: exclude emergency sources, interim, 'non-available')?
+- any reporting period okay? ex: goes back to 2022
+
+```{r}
+table(clearinghouse_raw$facility_activity_status)
+table(clearinghouse_raw$sdwis_water_type)
+```
+
+
+```{r}
+clearinghouse_filtered = clearinghouse_raw%>%
+  filter(facility_activity_status == "Active" & sdwis_water_type == "Groundwater" & facility_type != "Spring")
+
+table(clearinghouse_filtered$clearinghouse_water_type)
+table(clearinghouse_filtered$facility_type)
+table(clearinghouse_filtered$facility_availability)
+
+clearinghouse_filtered%>%
+  filter(clearinghouse_water_type == "Spring Water")
+```
+
+## EPA Echo Data
+
+Zip file Safe Drinking Water Act data downloaded from the [EPA's ECHO page](https://echo.epa.gov/tools/data-downloads#drinkingwater). 
+
+Data dictionaries linked here for [facilities](https://echo.epa.gov/tools/data-downloads/sdwa-download-summary#facilities) and [violations and enforcement](https://echo.epa.gov/tools/data-downloads/sdwa-download-summary#vio-enf), respectively.
+
+### Facilities
+
+Columns possibly of interest:
+- PWSID
+- Facility ID
+- Activity code (ex: would we only filter for violations in active facilities?)
+- Facility type code -- to filter for only gw violations
+- Water type code -- to filter for only gw violations
+- Availibility code -- ex: do we care about violations for emergency/interim/etc. sources?
+```{r}
+#echo_facilities = read.csv("Data/Source/EPA Echo data/SDWA_latest_downloads/SDWA_FACILITIES.csv")
+#save(echo_facilities, file = "Data/Source/EPA Echo data/echo_facilities.RData")
+load("Data/Source/EPA Echo data/echo_facilities.RData")
+
+echo_facilities%>%
+  filter(grepl("CA", PWSID))
+
+echo_facilities%>%
+  filter(PWSID == "CA0510001")
+```
+
+
+```{r}
+table(echo_facilities$FACILITY_TYPE_CODE)
+table(echo_facilities$WATER_TYPE_CODE)
+```
+
+Filter for groundwater facilities (exclude springs)
+```{r}
+gw_facilities = echo_facilities%>%
+  filter(WATER_TYPE_CODE == "GW" & FACILITY_TYPE_CODE != "SP")
+
+table(gw_facilities$FACILITY_TYPE_CODE)
+```
+Remaining categories include consecutive connection, infiltration gallery, intake, non-piped/non-purchased, non-piped, roof catchment, sampling station, treatment plant, well
+
+### Violations
+Note that can be multiple rows per violation (due to multiple occurrences of an enforcement action). I assume the type of enforcement doesn't matter?
+
+Violations columns possibly of interest:
+- PWSID (only filter for "CA----" PWSIDs?)
+- Facility ID (to distinguish between violations across sources within a given PWSID, since these violations could also be for surface drinking water)
+- Non-compliance period beginning or ending date -- to filter for recent violations?
+- Violation category code -- to filter for maximum contaminant level (MCL) violations
+```{r}
+#echo_violations = read.csv("Data/Source/EPA Echo data/SDWA_latest_downloads/SDWA_VIOLATIONS_ENFORCEMENT.csv")
+#save(echo_violations, file = "Data/Source/EPA Echo data/echo_violations.RData")
+load("Data/Source/EPA Echo data/echo_violations.RData")
+
+echo_violations
+
+table(echo_violations$VIOLATION_CATEGORY_CODE)
+```
+
+
+```{r}
+mcl_violations = echo_violations%>%
+  filter(VIOLATION_CATEGORY_CODE == "MCL" & grepl("CA", PWSID))
+
+mcl_violations%>%
+  filter(FACILITY_ID == "")
+
+n_distinct(mcl_violations$PWSID)
+
+mcl_violations%>%
+  select(2, 4)%>%
+  mutate(has_facility = ifelse(FACILITY_ID != "" & !is.na(FACILITY_ID), 1, 0))%>%
+  group_by(PWSID)%>%
+  reframe(facility_av = mean(has_facility))%>%
+  filter(facility_av > 0)
+
+mcl_violations%>%
+  select(2:4, NON_COMPL_PER_BEGIN_DATE)%>%
+  mutate(year = year(mdy(NON_COMPL_PER_BEGIN_DATE)))%>%
+  mutate(has_facility = ifelse(FACILITY_ID != "" & !is.na(FACILITY_ID), 1, 0))%>%
+  group_by(PWSID, VIOLATION_ID, year)%>%
+  reframe(facility_av = mean(has_facility))%>%
+  group_by(year)%>%
+  reframe(mean_av = mean(facility_av))%>%
+  ggplot(aes(year, mean_av*100))+
+  geom_point()+
+  geom_line()+
+  theme_bw()+
+  labs(x = "Year of Start of MCL Violation", y = "Percentage of Violations with Facility ID")
+```
+Only 415 of 5248 California PWSIDs with an MCL violation have a facility ID
+
+## EDT
+
+Drinking water quality data compiled by the State Water Resources Control Board and downloaded from [this page](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/EDTlibrary.html). Data dictionary is available [here](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/documents/edtlibrary/data_dictionary.pdf).
+
+Note that multiple files are available for download, corresponding to different time periods of data
+Currently working with v4 of the data, containing data from Jan 1, 2023 to Present (last updated August 19, 2025)
+
+Additional note from EDT webpage – "care should be taken in interpreting the data. A single detection of a contaminant may not indicate contamination of a drinking water supply. If this detection is not confirmed with a follow-up detection, it may represent a false positive. 
+Additionally, the presence of a contaminant in raw water at a given concentration does not necessarily mean that the water was served by the water system to its customers, or if served, that the contaminant was present at that concentration. Water systems may not use certain sources or may treat or blend them prior to service. Data that does not meet DDW data quality objectives is not included."
+
+```{r}
+#edt = read_delim("Data/Source/EDT Library/SDWIS4/SDWIS4.tab", delim = "\t", escape_double = FALSE, trim_ws = TRUE)%>%
+  #clean_names()
+#save(edt, file = "Data/Source/EDT Library/edt4.Rdata")
+load("Data/Source/EDT Library/edt4.Rdata")
+
+edt
+```
+Possible columns of interest:
+- water_system_number -- this is the PWSID
+- system_status -- filter for only active systems?
+- water_system_classification -- filter for only community systems?
+- facility_type -- filter for groundwater facilities
+- facility_status -- filter for only active facilities?
+- 'result' & mcl -- to filter for analyses where the contaminant exceeded MCL levels
+
+```{r}
+edt_mcl = edt%>%
+  filter(result > mcl)
+
+edt_mcl%>%
+  group_by(ps_code, analyte_code, analyte_name)%>%
+  reframe(n = n())%>%
+  filter(n == 1)
+
+edt%>%
+  filter(ps_code == "CA0105020_003_005" & analyte_code == "2987")
+```
+
+
+```{r}
+table(edt_mcl$system_status)
+table(edt_mcl$facility_type)
+table(edt_mcl$facility_status)
+```
+
+
+
+
+# Combining datasets
+```{r}
+table(network_pwsids%>%
+  mutate(gw = ifelse(pwsid %in% clearinghouse_filtered$water_system_id, 1, 0))%>%
+  pull(gw))
+
+table(network_pwsids%>%
+  mutate(gw = ifelse(pwsid %in% edt_mcl$water_system_number, 1, 0))%>%
+  pull(gw))
+```
 
