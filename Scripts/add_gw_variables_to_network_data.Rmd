@@ -1,0 +1,35 @@
+
+# Overview
+
+The team has constructed a network dataset of California public water systems and the various sources they get their surface water from. 
+
+In this script, we want add two groundwater-related variables to the dataset (for now in a separate table that we can join by PWSID). One being a simple binary just whether the PWS has groundwater or not, and the second being some indicator of if their groundwater meets drinking water standards.
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+
+# Import data
+
+## Network data
+Draft version of a network dataset of public water systems. Note that the data is by source so PWSIDs are repeated for as many water sources as the system has. 
+
+```{r}
+read.csv("")
+```
+
+
