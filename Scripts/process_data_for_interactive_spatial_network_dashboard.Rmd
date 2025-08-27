@@ -1,0 +1,402 @@
+
+# Overview
+
+The team has constructed a network dataset of California public water systems and the various sources they get their surface water from. 
+
+In this script, 
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(sf)          # Spatial operations
+  library(tmap)        # Spatial visualisations
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+
+# Test map
+
+## Generate random nodes
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Create random water sources (5 points)
+sources <- data.frame(
+  id = paste0("source_", LETTERS[1:5]),
+  name = c("Hetch Hetchy Reservoir", "Owens River", "Colorado River Aqueduct", 
+           "Sacramento River", "Feather River"),
+  type = c("Reservoir", "River", "Aqueduct", "River", "River"),
+  lat = runif(5, 36.0, 39.0),  # Random latitudes within California
+  lon = runif(5, -121.0, -118.0),  # Random longitudes within California
+  capacity_mgd = runif(5, 100, 500)  # Random capacity in million gallons per day
+)
+
+# Create random water systems (10 points)
+systems <- data.frame(
+  id = paste0("system_", 1:10),
+  name = c("San Francisco PWS", "Los Angeles PWS", "San Diego PWS", 
+           "Sacramento PWS", "Fresno PWS", "Oakland PWS",
+           "San Jose PWS", "Long Beach PWS", "Bakersfield PWS", "Santa Cruz PWS"),
+  population = round(runif(10, 5000, 500000)),  # Random population served
+  type = sample(c("Urban", "Suburban", "Rural"), 10, replace = TRUE),
+  lat = runif(10, 34.0, 39.5),  # Random latitudes within California
+  lon = runif(10, -122.5, -117.0)  # Random longitudes within California
+)
+
+# Convert to sf objects
+sources_sf <- st_as_sf(sources, coords = c("lon", "lat"), crs = 4326)
+systems_sf <- st_as_sf(systems, coords = c("lon", "lat"), crs = 4326)
+
+# View the data
+head(sources)
+head(systems)
+```
+
+
+## Create random links
+```{r}
+# Create random connections (each system connected to 1-2 sources)
+connections <- data.frame()
+for (i in 1:nrow(systems)) {
+  num_connections <- sample(1:2, 1)  # Each system gets 1-2 sources
+  connected_sources <- sample(sources$id, num_connections)
+  
+  for (source_id in connected_sources) {
+    connections <- rbind(connections, data.frame(
+      from = source_id,
+      to = systems$id[i],
+      purchase = sample(c(TRUE, FALSE), 1),
+      volume_mgd = round(runif(1, 10, 200)),  # Random volume
+      contract_type = sample(c("Long-term", "Short-term", "Emergency"), 1)))}}
+
+# View connections
+print(connections)
+```
+
+## Create lines
+```{r}
+# Create lines from sources to systems
+create_connection_lines <- function(connections_df, sources_sf, systems_sf) {
+  lines_list <- list()
+  
+  for (i in 1:nrow(connections_df)) {
+    # Get coordinates
+    from_coords <- st_coordinates(sources_sf[sources_sf$id == connections_df$from[i], ])
+    to_coords <- st_coordinates(systems_sf[systems_sf$id == connections_df$to[i], ])
+    
+    # Create line
+    line <- st_linestring(rbind(from_coords, to_coords))
+    lines_list[[i]] <- line}
+  
+  # Convert to sf object
+  lines_sf <- st_sf(
+    connections_df,
+    geometry = st_sfc(lines_list, crs = 4326))
+  
+  return(lines_sf)}
+
+# Generate the connection lines
+connection_lines <- create_connection_lines(connections, sources_sf, systems_sf)
+
+# View the resulting lines
+print(connection_lines)
+```
+
+## tmap view
+```{r}
+# Switch to interactive viewing mode
+tmap_mode(mode = "view")
+
+# Create the interactive map
+tm_shape(connection_lines) +
+  
+  # Add connection lines with arrows
+  tm_lines(col = "volume_mgd", 
+           palette = "YlGnBu",
+           title.col = "Volume (MGD)",
+           lwd = 3,
+           popup.vars = c("From" = "from", 
+                         "To" = "to", 
+                         "Volume (MGD)" = "volume_mgd",
+                         "Purchase" = "purchase",
+                         "Contract" = "contract_type")) +
+  
+  # Add water sources
+  tm_shape(sources_sf) +
+  tm_symbols(size = 0.3,
+             col = "red",
+             border.col = "darkred",
+             border.lwd = 2,
+             id = "name",
+             popup.vars = c("Type" = "type", 
+                           "Capacity (MGD)" = "capacity_mgd")) +
+  
+  # Add water systems (size by population)
+  tm_shape(systems_sf) +
+  tm_symbols(size = "population",
+             scale = 1.5,
+             col = "blue",
+             border.col = "darkblue",
+             border.lwd = 1.5,
+             id = "name",
+             popup.vars = c("Population" = "population", 
+                           "Type" = "type"),
+             title.size = "Population Served") +
+  
+  # Add basemap
+  #tm_basemap(server = "OpenStreetMap") +
+  
+  # Add legend and layout options
+  tm_layout(legend.position = c("right", "top"),
+            legend.frame = TRUE,
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.7) +
+  
+  # Add scale bar and compass
+  tm_scale_bar(position = c("left", "bottom")) +
+  tm_compass(position = c("right", "bottom"))
+```
+
+
+## Leaflet
+```{r}
+# Create the clean map with consistent styling
+clean_arrow_map <- leaflet() %>%
+  addTiles() %>%
+  
+  # Add water sources (red circles)
+  addCircleMarkers(
+    data = sources_sf,
+    radius = 8,
+    color = "darkred",
+    fillColor = "red",
+    fillOpacity = 0.9,
+    stroke = TRUE,
+    weight = 2,
+    popup = ~paste("<b>Source:</b>", name, "<br>",
+                   "<b>Type:</b>", type, "<br>",
+                   "<b>Capacity:</b>", capacity_mgd, "MGD")
+  ) %>%
+  
+  # Add water systems (blue circles)
+  addCircleMarkers(
+    data = systems_sf,
+    radius = 6,
+    color = "darkblue",
+    fillColor = "blue",
+    fillOpacity = 0.7,
+    stroke = TRUE,
+    weight = 2,
+    popup = ~paste("<b>System:</b>", name, "<br>",
+                   "<b>Population:</b>", format(population, big.mark = ","), "<br>",
+                   "<b>Type:</b>", type)
+  ) %>%
+  
+  # Add connection lines with consistent arrowheads
+  addArrowhead(
+    data = connection_lines,
+    color = "black",  # Nice blue color
+    weight = 3,         # Consistent thickness
+    opacity = 0.8,
+    popup = ~paste("<b>From:</b>", from, "<br>",
+                   "<b>To:</b>", to, "<br>",
+                   "<b>Volume:</b>", volume_mgd, "MGD<br>",
+                   "<b>Purchase:</b>", ifelse(purchase, "Yes", "No"), "<br>",
+                   "<b>Contract:</b>", contract_type)
+  ) %>%
+  
+  # Add legend
+  addLegend(
+    position = "topright",
+    colors = c("red", "blue", "black"),
+    labels = c("Water Sources", "Water Systems", "Water Connections"),
+    title = "Map Legend",
+    opacity = 1
+  ) %>%
+  
+  # Add scale bar
+  addScaleBar(position = "bottomleft") %>%
+  
+  # Add title
+  addControl(
+    "<strong>California Water Systems Network</strong>",
+    position = "topleft"
+  )
+
+# Display the clean map
+clean_arrow_map
+
+# Save as HTML
+#library(htmlwidgets)
+#saveWidget(clean_arrow_map, "california_water_network_clean.html")
+```
+
+## Shiny
+```{r}
+# app.R
+library(shiny)
+library(leaflet)
+library(leaflet.extras)
+library(sf)
+library(dplyr)
+library(DT)
+
+ui <- fluidPage(
+  titlePanel("California Water Systems Network Dashboard"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      width = 3,
+      h4("Filter Options"),
+      
+      # System type filter
+      selectInput("system_type", "System Type:",
+                  choices = c("All", "Urban", "Suburban", "Rural"),
+                  selected = "All"),
+      
+      # Population filter
+      sliderInput("population", "Minimum Population:",
+                  min = 0, max = 500000, value = 0, step = 1000),
+      
+      # Purchase type filter
+      selectInput("purchase_type", "Purchase Type:",
+                  choices = c("All", "Purchased", "Direct"),
+                  selected = "All"),
+      
+      # Volume filter
+      sliderInput("volume", "Minimum Volume (MGD):",
+                  min = 0, max = 200, value = 0, step = 10),
+      
+      # System selector
+      selectizeInput("selected_system", "Select Specific System:",
+                     choices = c("All", sort(unique(systems_sf$name))),
+                     selected = "All"),
+      
+      hr(),
+      h4("Map Legend"),
+      HTML("<div style='margin-bottom: 5px;'><span style='color: red; font-weight: bold;'>●</span> Water Sources</div>"),
+      HTML("<div style='margin-bottom: 5px;'><span style='color: blue; font-weight: bold;'>●</span> Water Systems</div>"),
+      HTML("<div><span style='color: #0066CC; font-weight: bold;'>→</span> Water Connections</div>")
+    ),
+    
+    mainPanel(
+      width = 9,
+      leafletOutput("map", height = "600px"),
+      br(),
+      h4("Filtered Systems Table"),
+      DTOutput("systems_table")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  # Reactive filtered data
+  filtered_systems <- reactive({
+    systems <- systems_sf
+    
+    if (input$system_type != "All") {
+      systems <- systems %>% filter(type == input$system_type)
+    }
+    
+    systems <- systems %>% filter(population >= input$population)
+    
+    if (input$selected_system != "All") {
+      systems <- systems %>% filter(name == input$selected_system)
+    }
+    
+    systems
+  })
+  
+  filtered_connections <- reactive({
+    conns <- connection_lines
+    
+    if (input$purchase_type != "All") {
+      purchase_bool <- input$purchase_type == "Purchased"
+      conns <- conns %>% filter(purchase == purchase_bool)
+    }
+    
+    conns <- conns %>% filter(volume_mgd >= input$volume)
+    
+    # Only show connections to filtered systems
+    system_ids <- filtered_systems()$id
+    conns <- conns %>% filter(to %in% system_ids)
+    
+    conns
+  })
+  
+  # Map output
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addTiles() %>%
+      setView(lng = -119.4, lat = 37.2, zoom = 6)
+  })
+  
+  # Observe changes and update map
+  observe({
+    systems_data <- filtered_systems()
+    connections_data <- filtered_connections()
+    
+    leafletProxy("map") %>%
+      clearMarkers() %>%
+      clearShapes() %>%
+      
+      # Add sources (always show all)
+      addCircleMarkers(
+        data = sources_sf,
+        radius = 8,
+        color = "darkred",
+        fillColor = "red",
+        fillOpacity = 0.9,
+        popup = ~paste("<b>Source:</b>", name, "<br>Capacity:", capacity_mgd, "MGD")
+      ) %>%
+      
+      # Add filtered systems
+      addCircleMarkers(
+        data = systems_data,
+        radius = ~sqrt(population)/100,
+        color = "darkblue",
+        fillColor = "blue",
+        fillOpacity = 0.7,
+        popup = ~paste("<b>System:</b>", name, "<br>Population:", format(population, big.mark = ","))
+      ) %>%
+      
+      # Add filtered connections
+      addArrowhead(
+        data = connections_data,
+        color = "#0066CC",
+        weight = 3,
+        opacity = 0.8,
+        popup = ~paste("Volume:", volume_mgd, "MGD<br>Type:", ifelse(purchase, "Purchased", "Direct"))
+      )
+  })
+  
+  # Data table output
+  output$systems_table <- renderDT({
+    filtered_systems() %>%
+      st_drop_geometry() %>%
+      select(name, type, population) %>%
+      mutate(population = format(population, big.mark = ",")) %>%
+      datatable(rownames = FALSE, 
+                options = list(pageLength = 5, dom = 'tp'),
+                colnames = c('System Name', 'Type', 'Population Served'))
+  })
+}
+
+# Run the app
+shinyApp(ui, server)
+```
+
+
