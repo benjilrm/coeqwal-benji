@@ -1,16 +1,23 @@
+
+# Load packages
 ```{r}
-library(shiny)
-library(leaflet)
-library(leaflet.extras)
-library(leaflet.extras2)
-library(sf)
-library(dplyr)
-library(DT)
+suppressPackageStartupMessages({
+  suppressWarnings({
+    library(shiny)
+    library(leaflet)
+    library(leaflet.extras)
+    library(leaflet.extras2)
+    library(sf)
+    library(dplyr)
+    library(DT)
+    })})
 ```
 
+# Create fake datasets
 
+## Nodes
+### PW Systems
 ```{r}
-# Your enhanced dataset creation code here (from previous messages)
 enhanced_systems <- data.frame(
   system_id = paste0("sys_", 1:10),
   system_name = c("San Francisco PWS", "Los Angeles PWS", "San Diego PWS", 
@@ -33,7 +40,7 @@ enhanced_systems <- data.frame(
   lon = runif(10, -122.5, -117.0))
 ```
 
-
+### Sources
 ```{r}
 enhanced_sources <- data.frame(
   source_id = c("src_A", "src_B", "src_C", "src_D", "src_E", "src_F", "src_G"),
@@ -49,7 +56,7 @@ enhanced_sources <- data.frame(
   capacity_mgd = runif(7, 100, 500))
 ```
 
-
+## Links
 ```{r}
 enhanced_connections <- do.call(rbind, lapply(enhanced_systems$system_id, function(sys_id) {
   num_connections <- sample(1:3, 1)
@@ -65,7 +72,7 @@ enhanced_connections <- do.call(rbind, lapply(enhanced_systems$system_id, functi
                                     prob = c(0.6, 0.4))))}))
 ```
 
-
+Now we need to convert these links into spatial data (lines)
 ```{r}
 create_connection_lines <- function(connections_df, sources_df, systems_df) {
   lines_list <- list()
@@ -88,10 +95,9 @@ create_connection_lines <- function(connections_df, sources_df, systems_df) {
     )} else {NULL}}
 ```
 
-```{r}
-enhanced_systems
-```
+# Interactive dashboard
 
+## UI
 ```{r}
 # UI
 ui <- fluidPage(
@@ -152,6 +158,7 @@ ui <- fluidPage(
 )
 ```
 
+## Server
 ```{r}
 server <- function(input, output, session) {
   
@@ -321,7 +328,7 @@ server <- function(input, output, session) {
 }
 ```
 
-
+## Deploy
 ```{r}
 shinyApp(ui, server)
 ```
