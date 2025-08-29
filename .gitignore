@@ -2,6 +2,8 @@
 Data/
 *.html
 
+lib/
+
 # History files
 .Rhistory
 .Rapp.history
