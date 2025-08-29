@@ -2,6 +2,7 @@
 library(shiny)
 library(leaflet)
 library(leaflet.extras)
+library(leaflet.extras2)
 library(sf)
 library(dplyr)
 library(DT)
@@ -87,9 +88,12 @@ create_connection_lines <- function(connections_df, sources_df, systems_df) {
     )} else {NULL}}
 ```
 
+```{r}
+enhanced_systems
+```
 
 ```{r}
-# UI and Server code (from the previous message) goes here
+# UI
 ui <- fluidPage(
   titlePanel("California Water Systems Network Dashboard"),
   sidebarLayout(
@@ -143,11 +147,83 @@ ui <- fluidPage(
       tabsetPanel(
         tabPanel("Systems", DTOutput("systems_table")),
         tabPanel("Connections", DTOutput("connections_table")),
-        tabPanel("Sources", DTOutput("sources_table"))))))
+        tabPanel("Sources", DTOutput("sources_table"))))
+  )
+)
+```
 
+```{r}
 server <- function(input, output, session) {
   
   selected_feature <- reactiveValues(system_id = NULL, source_id = NULL)
+  
+  # Add these observers for search functionality
+  observeEvent(input$zoom_selected, {
+    # Clear previous selections
+    selected_feature$system_id <- NULL
+    selected_feature$source_id <- NULL
+    
+    # Handle system search
+    if (!is.null(input$search_system) && input$search_system != "") {
+      system <- enhanced_systems %>% filter(system_name == input$search_system)
+      if (nrow(system) > 0) {
+        selected_feature$system_id <- system$system_id[1]
+        
+        # Zoom to the system
+        leafletProxy("map") %>% 
+          flyTo(lng = system$lon[1], lat = system$lat[1], zoom = 10)
+      }
+    }
+    
+    # Handle source search
+    if (!is.null(input$search_source) && input$search_source != "") {
+      source <- enhanced_sources %>% filter(source_name == input$search_source)
+      if (nrow(source) > 0) {
+        selected_feature$source_id <- source$source_id[1]
+        
+        # Zoom to the source
+        leafletProxy("map") %>% 
+          flyTo(lng = source$source_lon[1], lat = source$source_lat[1], zoom = 10)
+      }
+    }
+  })
+  
+  observeEvent(input$reset_view, {
+    # Clear selections and reset view
+    selected_feature$system_id <- NULL
+    selected_feature$source_id <- NULL
+    updateSelectizeInput(session, "search_system", selected = "")
+    updateSelectizeInput(session, "search_source", selected = "")
+    
+    leafletProxy("map") %>% 
+      setView(lng = -119.4, lat = 37.2, zoom = 6)
+  })
+  
+  # Also add these observers to update search inputs when clicking on map features
+  observeEvent(input$map_marker_click, {
+    click <- input$map_marker_click
+    if (!is.null(click)) {
+      # Check if it's a system marker
+      systems_data <- filtered_data()$systems
+      system_match <- systems_data %>%
+        filter(lon == click$lng, lat == click$lat)
+      
+      if (nrow(system_match) > 0) {
+        updateSelectizeInput(session, "search_system", selected = system_match$system_name[1])
+        updateSelectizeInput(session, "search_source", selected = "")
+      }
+      
+      # Check if it's a source marker
+      sources_data <- filtered_data()$sources
+      source_match <- sources_data %>%
+        filter(source_lon == click$lng, source_lat == click$lat)
+      
+      if (nrow(source_match) > 0) {
+        updateSelectizeInput(session, "search_source", selected = source_match$source_name[1])
+        updateSelectizeInput(session, "search_system", selected = "")
+      }
+    }
+  })
   
   filtered_data <- reactive({
     systems <- enhanced_systems
@@ -174,7 +250,7 @@ server <- function(input, output, session) {
     sources <- sources %>% filter(source_id %in% connections$from)
     connections <- connections %>% filter(to %in% systems$system_id & from %in% sources$source_id)
     
-    # Search filtering
+    # Search filtering (this part was missing the actual filtering logic)
     if (!is.null(selected_feature$system_id)) {
       systems <- systems %>% filter(system_id == selected_feature$system_id)
       connections <- connections %>% filter(to == selected_feature$system_id)
@@ -200,38 +276,39 @@ server <- function(input, output, session) {
         leafletProxy("map") %>% clearMarkers() %>% clearShapes() %>%
           
           # Add sources
-      addCircleMarkers(
-        data = data$sources,
-        lng = ~source_lon, lat = ~source_lat,
-        radius = 8,
-        color = "darkred",
-        fillColor = "red",
-        fillOpacity = 0.9,
-        popup = ~paste("<b>Source:</b>", source_name, "<br>",
-                       "<b>Type:</b>", source_type, "<br>",
-                       "<b>Project:</b>", project, "<br>",
-                       "<b>Capacity:</b>", capacity_mgd, "MGD")
-      ) %>%
+          addCircleMarkers(
+            data = data$sources,
+            lng = ~source_lon, lat = ~source_lat,
+            radius = 8,
+            color = "darkred",
+            fillColor = "red",
+            fillOpacity = 0.9,
+            layerId = ~paste("source", source_id),
+            popup = ~paste("<b>Source:</b>", source_name, "<br>",
+                           "<b>Type:</b>", source_type, "<br>",
+                           "<b>Project:</b>", project, "<br>",
+                           "<b>Capacity:</b>", capacity_mgd, "MGD")
+          ) %>%
           # Add systems
-      addCircleMarkers(
-        data = data$systems,
-        lng = ~lon, lat = ~lat,
-        radius = ~sqrt(population)/80,
-        color = "darkblue",
-        fillColor = "blue",
-        fillOpacity = 0.7,
-        popup = ~paste("<b>System:</b>", system_name, "(", pwsid, ")<br>",
-                       "<b>County:</b>", county, "<br>",
-                       "<b>Population:</b>", format(population, big.mark = ","), "<br>",
-                       "<b>Provider Type:</b>", provider_type)) %>%
+          addCircleMarkers(
+            data = data$systems,
+            lng = ~lon, lat = ~lat,
+            radius = ~sqrt(population)/80,
+            color = "darkblue",
+            fillColor = "blue",
+            fillOpacity = 0.7,
+            layerId = ~paste("system", system_id),
+            popup = ~paste("<b>System:</b>", system_name, "(", pwsid, ")<br>",
+                           "<b>County:</b>", county, "<br>",
+                           "<b>Population:</b>", format(population, big.mark = ","), "<br>",
+                           "<b>Provider Type:</b>", provider_type)) %>%
           
-        
           addArrowhead(data = conn_lines, color = "#0066CC", weight = 3, 
                        popup = ~paste("<b>From:</b>", from, "<br>",
-                       "<b>To:</b>", to, "<br>",
-                       "<b>Volume:</b>", volume_mgd, "MGD<br>",
-                       "<b>Purchase:</b>", ifelse(purchase, "Yes", "No"), "<br>",
-                       "<b>Avg % Supply:</b>", round(avg_pct_supply, 1), "%"))
+                                      "<b>To:</b>", to, "<br>",
+                                      "<b>Volume:</b>", volume_mgd, "MGD<br>",
+                                      "<b>Purchase:</b>", ifelse(purchase, "Yes", "No"), "<br>",
+                                      "<b>Avg % Supply:</b>", round(avg_pct_supply, 1), "%"))
       }
     } else {
       leafletProxy("map") %>% clearMarkers() %>% clearShapes()
@@ -242,7 +319,10 @@ server <- function(input, output, session) {
   output$connections_table <- renderDT({ datatable(filtered_data()$connections) })
   output$sources_table <- renderDT({ datatable(filtered_data()$sources) })
 }
+```
 
+
+```{r}
 shinyApp(ui, server)
 ```
 
