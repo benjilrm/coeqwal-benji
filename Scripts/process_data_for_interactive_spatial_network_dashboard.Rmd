@@ -10,7 +10,16 @@ suppressPackageStartupMessages({
     library(sf)
     library(tidyverse)
     library(DT)
+    library(here)
     })})
+```
+
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+
+crs = 4326
 ```
 
 # Create fake datasets
@@ -95,6 +104,18 @@ create_connection_lines <- function(connections_df, sources_df, systems_df) {
       geometry = st_sfc(lines_list[valid_lines], crs = 4326)
     )} else {NULL}}
 ```
+
+Export
+```{r}
+
+
+st_write(st_as_sf(enhanced_systems, coords = c("lon", "lat"), crs = crs), "Data/Interactive map/20250903_fake_systems.shp", delete_dsn = T)
+
+st_write(st_as_sf(enhanced_sources, coords = c("source_lon", "source_lat"), crs = crs), "Data/Interactive map/20250903_fake_sources.shp")
+
+st_write(create_connection_lines(enhanced_connections, enhanced_sources, enhanced_systems), "Data/Interactive map/20250903_fake_links.shp")
+```
+
 
 # Interactive dashboard
 
