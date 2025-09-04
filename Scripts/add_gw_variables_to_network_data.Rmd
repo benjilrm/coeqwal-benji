@@ -113,12 +113,15 @@ clearinghouse_filtered_manual = clearinghouse_filtered %>%
   filter(!index_facility_id %in% manual_filter_out)
 
 rm(clearinghouse_joined, clearinghouse_filtered)
+```
 
+We also are considering excluding consecutive connections from being considered groundwater access, so we will make a separate version with that scenario.
+```{r}
 clearinghouse_wo_consecutive_connections = clearinghouse_filtered_manual%>%
   filter(facility_type != "Consecutive Connection")
 ```
 
-Diagnostics to send to Kristin for review
+Diagnostics to send to Kristin for review, and flag any potential springs in community water systems. 
 ```{r, eval = F}
 check = clearinghouse_filtered%>%
   filter(grepl("Spring", facility_name, ignore.case = T))%>%
@@ -188,7 +191,10 @@ network_pwsids_w_gw_variables = network_pwsids%>%
     !grepl("CA", pwsid) ~ NA,
     is.na(gw_access) ~ 0,
     T ~ gw_access))
+```
 
+Just to get a sense of the distribution of the violation rate across systems
+```{r}
 network_pwsids_w_gw_variables%>%
   ggplot(aes((violation_rate)*100))+
   geom_histogram(fill = "coral", col = "black")+
@@ -207,7 +213,7 @@ addmargins(table(network_pwsids_w_gw_variables$gw_access,
       dnn = c("GW Access", "GW Compliant with DW Standards")),
     margin = c(1, 2))
 ```
-Version excluding consectuvie connections
+Version excluding consecutive connections
 ```{r}
 network_pwsids_w_gw_variables_excl_consecutive_connections = network_pwsids%>%
   left_join(., clearinghouse_excl_consecutive_connections_w_mcl_violations, by = c("pwsid" = "water_system_id"))%>%
@@ -228,7 +234,7 @@ addmargins(table(network_pwsids_w_gw_variables_excl_consecutive_connections$gw_a
 ```
 
 
-Export
+Export 2 separate csvs
 ```{r}
 write.csv(network_pwsids_w_gw_variables%>%select(-violation_rate), "Data/Outputs/20250904_network_pwsids_w_gw_variables.csv", row.names = F)
 
