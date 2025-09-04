@@ -64,11 +64,11 @@ load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
 
 Bring in another clearinghouse dataset with water system information so that we can filter for only facilities in community water systems. 
 ```{r, eval = F}
-system_type_data = read_xlsx("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", 
-                           sheet = "WaterSystemInformation")%>%
-  select(1, 3)%>%
-  rename(water_system_id = 1, state_water_system_type = 2)%>%
-  unique()
+# system_type_data = read_xlsx("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", 
+#                            sheet = "WaterSystemInformation")%>%
+#   select(1, 3)%>%
+#   rename(water_system_id = 1, state_water_system_type = 2)%>%
+#   unique()
 
 #save(system_type_data, file = "Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
 load("Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
@@ -111,6 +111,11 @@ manual_filter_out = c("CA1410500_001", "CA1410504_001", "CA1410507_001", "CA1410
 
 clearinghouse_filtered_manual = clearinghouse_filtered %>%
   filter(!index_facility_id %in% manual_filter_out)
+
+rm(clearinghouse_joined, clearinghouse_filtered)
+
+clearinghouse_wo_consecutive_connections = clearinghouse_filtered_manual%>%
+  filter(facility_type != "Consecutive Connection")
 ```
 
 Diagnostics to send to Kristin for review
@@ -139,12 +144,13 @@ load("Data/Source/EDT Library/edt4.Rdata")
 ```
 
 Filter for analyses with results in which the contaminant met or exceeded MCL levels
-
 ```{r}
 edt_mcl = edt%>%
   filter(result >= mcl)%>%
   mutate(ps_code_clean = str_remove(ps_code, "_[^_]*$"), mcl_violation = 1)%>%
   select(ps_code_clean, mcl_violation)
+
+rm(edt)
 ```
 
 
@@ -152,18 +158,25 @@ edt_mcl = edt%>%
 # Combining datasets
 
 Join clearinghouse data with MCL violations and aggregate by PWSID. 
+
+PWSIDs are determined to have groundwater compliant with drinking water standards if they have any groundwater sources without MCL violations. In other words, they are considered noncompliant only if 100% of groundwater sources have an MCL violation.
 ```{r}
 clearinghouse_w_mcl_violations = left_join(clearinghouse_filtered_manual, edt_mcl, by = c("index_facility_id" = "ps_code_clean"))%>%
   mutate(gw_access_facility = 1,
          mcl_violation = replace_na(mcl_violation, 0))%>%
-         
-         # facility_meets_dw_standards = case_when(
-         #   mcl_violation == 1 ~ 0,
-         #   is.na(mcl_violation) ~ 1))%>%
   group_by(water_system_id)%>%
   reframe(gw_access = max(gw_access_facility), 
           violation_rate = mean(mcl_violation, na.rm = T),
-          gw_compliant_with_dw_standards = ifelse(violation_rate > 0.5, 0, 1))
+          gw_compliant_w_dw_standards = ifelse(violation_rate == 1, 0, 1))
+
+
+clearinghouse_excl_consecutive_connections_w_mcl_violations = left_join(clearinghouse_wo_consecutive_connections, edt_mcl, by = c("index_facility_id" = "ps_code_clean"))%>%
+  mutate(gw_access_facility = 1,
+         mcl_violation = replace_na(mcl_violation, 0))%>%
+  group_by(water_system_id)%>%
+  reframe(gw_access = max(gw_access_facility), 
+          violation_rate = mean(mcl_violation, na.rm = T),
+          gw_compliant_w_dw_standards = ifelse(violation_rate == 1, 0, 1))
 ```
 Now join with our original list of PWSIDs and add the new dummy columns, based on:
  - Whether or not PWS has at least 1 facility with groundwater access
@@ -186,16 +199,40 @@ network_pwsids_w_gw_variables%>%
 Inspect to make sure everything looks okay
 ```{r}
 table(network_pwsids_w_gw_variables$gw_access, useNA = "always")
-table(network_pwsids_w_gw_variables$gw_compliant_with_dw_standards, useNA = "always")
+table(network_pwsids_w_gw_variables$gw_compliant_w_dw_standards, useNA = "always")
 
-table(network_pwsids_w_gw_variables$gw_access, 
-      network_pwsids_w_gw_variables$gw_compliant_with_dw_standards, 
+addmargins(table(network_pwsids_w_gw_variables$gw_access, 
+      network_pwsids_w_gw_variables$gw_compliant_w_dw_standards, 
       useNA = "always",
-      dnn = c("GW Access", "GW Compliant with DW Standards"))
+      dnn = c("GW Access", "GW Compliant with DW Standards")),
+    margin = c(1, 2))
 ```
+Version excluding consectuvie connections
+```{r}
+network_pwsids_w_gw_variables_excl_consecutive_connections = network_pwsids%>%
+  left_join(., clearinghouse_excl_consecutive_connections_w_mcl_violations, by = c("pwsid" = "water_system_id"))%>%
+  mutate(gw_access = case_when(
+    !grepl("CA", pwsid) ~ NA,
+    is.na(gw_access) ~ 0,
+    T ~ gw_access))
+
+table(network_pwsids_w_gw_variables_excl_consecutive_connections$gw_access, useNA = "always")
+table(network_pwsids_w_gw_variables_excl_consecutive_connections$gw_compliant_w_dw_standards, useNA = "always")
+
+addmargins(table(network_pwsids_w_gw_variables_excl_consecutive_connections$gw_access, 
+      network_pwsids_w_gw_variables_excl_consecutive_connections$gw_compliant_w_dw_standards, 
+      useNA = "always",
+      dnn = c("GW Access, excl. consecutive connections", "GW Compliant with DW Standards")),
+      
+     margin = c(1, 2))
+```
+
+
 Export
 ```{r}
-write.csv(network_pwsids_w_gw_variables, "Data/Outputs/20250903_network_pwsids_w_gw_variables.csv", row.names = F)
+write.csv(network_pwsids_w_gw_variables%>%select(-violation_rate), "Data/Outputs/20250904_network_pwsids_w_gw_variables.csv", row.names = F)
+
+write.csv(network_pwsids_w_gw_variables_excl_consecutive_connections%>%select(-violation_rate), "Data/Outputs/20250904_network_pwsids_w_gw_variables_excl_consecutive_connections.csv", row.names = F)
 ```
 
 
