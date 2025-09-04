@@ -56,13 +56,29 @@ This is an internal state water board dataset they shared with us for this proje
 Unfortunately there is no data dictionary, but [Jenny has worked on developing one](https://docs.google.com/spreadsheets/d/1ulStajU7D1eFu2m3V0fTDtcm3PGNlneX/edit?gid=631545570#gid=631545570).
 
 ```{r}
-# read.csv("Data/Source/SAFER clearinghouse/active_cws_04_2025.csv")
 # clearinghouse_raw = read_excel("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", sheet = "SourceReporting")
 
 #save(clearinghouse_raw, file = "Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
 load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+```
 
-clearinghouse_raw
+Bring in another clearinghouse dataset with water system information so that we can filter for only facilities in community water systems. 
+```{r, eval = F}
+system_type_data = read_xlsx("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", 
+                           sheet = "WaterSystemInformation")%>%
+  select(1, 3)%>%
+  rename(water_system_id = 1, state_water_system_type = 2)%>%
+  unique()
+
+#save(system_type_data, file = "Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
+load("Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
+
+clearinghouse_joined = clearinghouse_raw%>%
+  left_join(., system_type_data, by = "water_system_id")%>%
+  filter(state_water_system_type == "COMMUNITY")%>%
+  unique()
+
+rm(system_type_data, clearinghouse_raw)
 ```
 
 We want to filter for facilities with likely groundwater access. To do so, we will use the following filters:
@@ -71,8 +87,9 @@ We want to filter for facilities with likely groundwater access. To do so, we wi
 - Filter out any sources that are explicitly surface water, in both the clearinghouse and SDWIS water type columns
 - Filter out any springs, as these are considered surface water in our network dataset
 
+We also compiled the remaining 55 facilities that included 'spring' in the facility name and manually went through to decide which to filter out. 
 ```{r}
-clearinghouse_filtered = clearinghouse_raw%>%
+clearinghouse_filtered = clearinghouse_joined%>%
   filter(facility_activity_status == "Active" & 
            sdwis_water_type != "Surface Water" & 
            !clearinghouse_water_type %in% c("Surface Water", "Spring Water") &
@@ -80,10 +97,24 @@ clearinghouse_filtered = clearinghouse_raw%>%
            facility_type != "Spring")%>%
   mutate(index_facility_id = str_remove_all(index_facility_id, " "))%>%
   select(water_system_id, facility_name, facility_id, index_facility_id, facility_availability, facility_activity_status:clearinghouse_water_type)
+
+manual_filter_out = c("CA1410500_001", "CA1410504_001", "CA1410507_001", "CA1410509_001", 
+                                  "CA1710012_001", "CA1710012_004", "CA2801016_001", "CA2801016_002", 
+                                  "CA2801016_003", "CA2801030_001", "CA3200175_005", "CA3310031_093", 
+                                  "CA3600106_003", "CA3600205_001", "CA3600257_002", "CA3600262_001", 
+                                  "CA3600262_004", "CA3600262_005", "CA5400511_001", "CA5400513_001", 
+                                  "CA5400513_002", "CA5400728_001", "CA5400738_001", "CA5400783_001", 
+                                  "CA5400826_001", "CA5400889_001", "CA5400916_001", "CA5400942_001", 
+                                  "CA5400959_001", "CA5401089_001", "CA5401093_001", "CA5401093_002", 
+                                  "CA5401093_003", "CA5403001_001", "CA5403020_001", "CA5500090_001", 
+                                  "CA5500175_001", "CA5500248_001", "CA5500250_001")
+
+clearinghouse_filtered_manual = clearinghouse_filtered %>%
+  filter(!index_facility_id %in% manual_filter_out)
 ```
 
 Diagnostics to send to Kristin for review
-```{r}
+```{r, eval = F}
 check = clearinghouse_filtered%>%
   filter(grepl("Spring", facility_name, ignore.case = T))%>%
   arrange(water_system_id, facility_id)%>%
@@ -122,16 +153,17 @@ edt_mcl = edt%>%
 
 Join clearinghouse data with MCL violations and aggregate by PWSID. 
 ```{r}
-clearinghouse_w_mcl_violations = left_join(clearinghouse_filtered, edt_mcl, by = c("index_facility_id" = "ps_code_clean"))%>%
+clearinghouse_w_mcl_violations = left_join(clearinghouse_filtered_manual, edt_mcl, by = c("index_facility_id" = "ps_code_clean"))%>%
   mutate(gw_access_facility = 1,
-         facility_meets_dw_standards = case_when(
-           mcl_violation == 1 ~ 0,
-           is.na(mcl_violation) ~ 1))%>%
+         mcl_violation = replace_na(mcl_violation, 0))%>%
+         
+         # facility_meets_dw_standards = case_when(
+         #   mcl_violation == 1 ~ 0,
+         #   is.na(mcl_violation) ~ 1))%>%
   group_by(water_system_id)%>%
   reframe(gw_access = max(gw_access_facility), 
-          gw_compliant_with_dw_standards = max(facility_meets_dw_standards))
-
-clearinghouse_w_mcl_violations
+          violation_rate = mean(mcl_violation, na.rm = T),
+          gw_compliant_with_dw_standards = ifelse(violation_rate > 0.5, 0, 1))
 ```
 Now join with our original list of PWSIDs and add the new dummy columns, based on:
  - Whether or not PWS has at least 1 facility with groundwater access
@@ -143,6 +175,12 @@ network_pwsids_w_gw_variables = network_pwsids%>%
     !grepl("CA", pwsid) ~ NA,
     is.na(gw_access) ~ 0,
     T ~ gw_access))
+
+network_pwsids_w_gw_variables%>%
+  ggplot(aes((violation_rate)*100))+
+  geom_histogram(fill = "coral", col = "black")+
+  theme_bw()+
+  labs(x= "% of facilities in system with MCL violations", y = "# of systems")
 ```
 
 Inspect to make sure everything looks okay
@@ -157,7 +195,7 @@ table(network_pwsids_w_gw_variables$gw_access,
 ```
 Export
 ```{r}
-write.csv(network_pwsids_w_gw_variables, "Data/Outputs/20250902_network_pwsids_w_gw_variables.csv", row.names = F)
+write.csv(network_pwsids_w_gw_variables, "Data/Outputs/20250903_network_pwsids_w_gw_variables.csv", row.names = F)
 ```
 
 
