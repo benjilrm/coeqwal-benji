@@ -1,0 +1,37 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+# Clean data
+
+Create source ID:
+Use PWSID as source ID if source type is a PWS, otherwise generating a numerical source ID for each source (grouping by source name since there can be multiple rows with the same source)
+```{r}
+df %>%
+  group_by(source_name) %>%
+  mutate(source_id = ifelse(source_type == "PWS", pwsid, cur_group_id())) %>%
+  ungroup()
+```
+
+
+```{r}
+
+```
+
+
