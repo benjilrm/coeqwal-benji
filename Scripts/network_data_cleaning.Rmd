@@ -18,20 +18,131 @@ knitr::opts_knit$set(root.dir = here())
 
 # Import data
 
+Most recent draft of our network data
+Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+```{r}
+network = read_excel("Data/Falldata_boxworking_sept16.xlsx")
+```
+
+
+SAFER clearinghouse data
+This is an internal state water board dataset they shared with us for this project. All documentation is located in [this Google Drive folder](https://drive.google.com/drive/folders/1gxMrGeaOA_xtGb1zf97Z79EFEwKcIpCG).
+
+Unfortunately there is no data dictionary, but [Jenny has worked on developing one](https://docs.google.com/spreadsheets/d/1ulStajU7D1eFu2m3V0fTDtcm3PGNlneX/edit?gid=631545570#gid=631545570).
+```{r}
+load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+```
+
 # Clean data
 
-Create source ID:
+Text cleaning
+```{r}
+network = network%>%
+  mutate(Source = gsub("\r\n", "", Source))
+```
+
+## Create source ID column
 Use PWSID as source ID if source type is a PWS, otherwise generating a numerical source ID for each source (grouping by source name since there can be multiple rows with the same source)
 ```{r}
-df %>%
-  group_by(source_name) %>%
-  mutate(source_id = ifelse(source_type == "PWS", pwsid, cur_group_id())) %>%
-  ungroup()
+network = network%>%
+  group_by(Source) %>%
+  mutate(group_id = cur_group_id()) %>%
+  ungroup() %>%
+  mutate(source_id = ifelse(Source_type == "PWS", Source, group_id)) %>%
+  select(-group_id)
+```
+
+Check to make sure it worked properly
+```{r}
+n_distinct(network$Source)
+n_distinct(network$source_id)
+
+network%>%
+  group_by(Source)%>%
+  filter(n_distinct(source_id) > 1)%>%
+  arrange(Source)
+```
+
+
+## Missing lat/longs
+```{r}
+missing_source_locations = network%>%
+  filter(is.na(Source_lat) | is.na(Source_lon))
 ```
 
 
 ```{r}
+clearinghouse_filtered = clearinghouse_raw%>%
+  filter(cid %in% missing_source_locations$PWSID)%>%
+  rename(Source_lat = latitude_measure, Source_lon = longitude_measure)
 
+rm(clearinghouse_raw)
 ```
+
+
+```{r}
+# Create a function for fuzzy matching
+fuzzy_match_sources <- function(missing_df, clearinghouse_df) {
+  results <- list()
+  
+  for(i in 1:nrow(missing_df)) {
+    current_pwsid <- missing_df$PWSID[i]
+    current_source <- missing_df$Source[i]
+    
+    # Filter clearinghouse for exact PWSID match first
+    potential_matches <- clearinghouse_df %>%
+      filter(cid == current_pwsid)
+    
+    if(nrow(potential_matches) > 0) {
+      # Calculate string distances
+      distances <- stringdist::stringdist(
+        tolower(current_source),
+        tolower(potential_matches$facility_name),
+        method = "jw"  # Jaro-Winkler is good for names
+      )
+      
+      # Get the best match
+      best_match_idx <- which.min(distances)
+      best_distance <- min(distances)
+      best_match <- potential_matches[best_match_idx, ]
+      
+      # Only consider it a match if similarity is good enough
+      if(best_distance < 0.2) {  # Adjust threshold as needed
+        results[[i]] <- data.frame(
+          missing_PWSID = current_pwsid,
+          missing_Source = current_source,
+          matched_facility_name = best_match$facility_name,
+          similarity_score = 1 - best_distance,  # Convert to similarity (0-1)
+          Source_lat = best_match$Source_lat,  
+          Source_lon = best_match$Source_lon,
+          stringsAsFactors = FALSE)}}}
+  
+  return(bind_rows(results))}
+
+# Run the matching
+matched_locations <- fuzzy_match_sources(missing_source_locations, clearinghouse_filtered)
+
+string_matches = missing_source_locations %>%
+  select(Source,PWSID)%>%
+  arrange(Source)%>%
+  left_join(matched_locations, by = c("PWSID" = "missing_PWSID", "Source" = "missing_Source"))%>%
+  filter(!is.na(matched_facility_name))
+
+string_matches
+```
+
+
+
+```{r}
+missing_key = missing_source_locations%>%
+  select(PWSID, Source, Source_summary)%>%
+  left_join(., clearinghouse_filtered%>%select(cid, facility_name)%>%unique(), by = c("PWSID" = "cid"))%>%
+  rename(clearinghouse_facility_name = facility_name, source_name = Source)%>%
+  mutate(string_match = ifelse(source_name %in% string_matches$Source & clearinghouse_facility_name %in% string_matches$matched_facility_name, 1, 0))
+
+write.csv(missing_key, "Data/Outputs/20250929_missing_lat_longs_clearinghouse_match_key.csv", row.names = F)
+```
+
+
 
 
