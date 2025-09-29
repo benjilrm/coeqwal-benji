@@ -143,6 +143,37 @@ missing_key = missing_source_locations%>%
 write.csv(missing_key, "Data/Outputs/20250929_missing_lat_longs_clearinghouse_match_key.csv", row.names = F)
 ```
 
+```{r}
+
+
+
+master_key = clearinghouse_filtered%>%
+  rename(PWSID = cid, matched_facility_name = facility_name)%>%
+  select(PWSID, matched_facility_name, Source_lat, Source_lon)%>%
+  unique()%>%
+  mutate(Source = case_when(
+    matched_facility_name == "BAJAMONT JUNCTION STRUCTURE-LANDIS 1,2,3" ~ "American River",
+    matched_facility_name == "CATER TREATMENT PLANT RAW" ~ "Devil's Canyon Creek",
+    matched_facility_name == "SWTP - RAW - STANDBY" ~ "North Canyon Creek",
+    matched_facility_name == "SAN ANTONIO TUNNEL (SHAFT 6)" ~ "San Antonio Canyon Tunnel",
+    matched_facility_name == "COLFAX WTP - RAW" ~ "North Fork American River",
+    matched_facility_name == "ALTA WTP - RAW" ~ "North Fork American River",
+    matched_facility_name == "BOARDMAN CANAL" & PWSID == "CA3110035" ~ "North Fork American River",
+    matched_facility_name == "SPRING #2-MAIN" ~ "Hess Winery Main Spring",
+    matched_facility_name == "SPRING #3-MIDDLE" ~ "Hess Winery Middle Spring",
+    matched_facility_name == "GALLERY WELL" ~ "Nacimiento Reservoir",
+    matched_facility_name == "SPRING 01" ~ "GRIER MUTUAL WATER COMPANY Spring",
+    matched_facility_name == "RADIAL COLLECTOR WELL 01 - WOHLER SITE" ~ "Russian River"))%>%
+  filter(!is.na(Source))%>%
+  arrange(matched_facility_name)%>%
+  rbind(string_matches%>%select(-similarity_score))
+
+missing_source_locations%>%
+  select(PWSID, Source)%>%
+  left_join(., master_key, by = c("Source", "PWSID"))
+```
+
+
 
 
 
