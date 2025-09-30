@@ -35,7 +35,7 @@ load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
 
 # Clean data
 
-Text cleaning
+Text cleaning of source names
 ```{r}
 network = network%>%
   mutate(Source = gsub("\r\n", "", Source))
@@ -65,21 +65,23 @@ network%>%
 
 
 ## Missing lat/longs
+
+Get df of sources with missing lat/longs
 ```{r}
 missing_source_locations = network%>%
   filter(is.na(Source_lat) | is.na(Source_lon))
 ```
 
-
+Filter clearinghouse data for facilities in PWSs with sources missing lat/longs
 ```{r}
 clearinghouse_filtered = clearinghouse_raw%>%
   filter(cid %in% missing_source_locations$PWSID)%>%
-  rename(Source_lat = latitude_measure, Source_lon = longitude_measure)
+  rename(clearinghouse_lat = latitude_measure, clearinghouse_long = longitude_measure)
 
 rm(clearinghouse_raw)
 ```
 
-
+Create function to identify similar source names across the network and clearinghouse datasets, based on jaro-winkler string distance
 ```{r}
 # Create a function for fuzzy matching
 fuzzy_match_sources <- function(missing_df, clearinghouse_df) {
@@ -113,8 +115,8 @@ fuzzy_match_sources <- function(missing_df, clearinghouse_df) {
           missing_Source = current_source,
           matched_facility_name = best_match$facility_name,
           similarity_score = 1 - best_distance,  # Convert to similarity (0-1)
-          Source_lat = best_match$Source_lat,  
-          Source_lon = best_match$Source_lon,
+          clearinghouse_lat = best_match$clearinghouse_lat,  
+          clearinghouse_long = best_match$clearinghouse_long,
           stringsAsFactors = FALSE)}}}
   
   return(bind_rows(results))}
@@ -127,12 +129,10 @@ string_matches = missing_source_locations %>%
   arrange(Source)%>%
   left_join(matched_locations, by = c("PWSID" = "missing_PWSID", "Source" = "missing_Source"))%>%
   filter(!is.na(matched_facility_name))
-
-string_matches
 ```
 
 
-
+Generate key of missing locations and possible facility matches for manual review
 ```{r}
 missing_key = missing_source_locations%>%
   select(PWSID, Source, Source_summary)%>%
@@ -140,16 +140,14 @@ missing_key = missing_source_locations%>%
   rename(clearinghouse_facility_name = facility_name, source_name = Source)%>%
   mutate(string_match = ifelse(source_name %in% string_matches$Source & clearinghouse_facility_name %in% string_matches$matched_facility_name, 1, 0))
 
-write.csv(missing_key, "Data/Outputs/20250929_missing_lat_longs_clearinghouse_match_key.csv", row.names = F)
+#write.csv(missing_key, "Data/Outputs/20250929_missing_lat_longs_clearinghouse_match_key.csv", row.names = F)
 ```
 
+Manually match sources to clearinghouse facilities based on manual review with Kristin
 ```{r}
-
-
-
 master_key = clearinghouse_filtered%>%
   rename(PWSID = cid, matched_facility_name = facility_name)%>%
-  select(PWSID, matched_facility_name, Source_lat, Source_lon)%>%
+  select(PWSID, matched_facility_name, clearinghouse_lat, clearinghouse_long)%>%
   unique()%>%
   mutate(Source = case_when(
     matched_facility_name == "BAJAMONT JUNCTION STRUCTURE-LANDIS 1,2,3" ~ "American River",
@@ -163,16 +161,62 @@ master_key = clearinghouse_filtered%>%
     matched_facility_name == "SPRING #3-MIDDLE" ~ "Hess Winery Middle Spring",
     matched_facility_name == "GALLERY WELL" ~ "Nacimiento Reservoir",
     matched_facility_name == "SPRING 01" ~ "GRIER MUTUAL WATER COMPANY Spring",
-    matched_facility_name == "RADIAL COLLECTOR WELL 01 - WOHLER SITE" ~ "Russian River"))%>%
+    matched_facility_name == "RADIAL COLLECTOR WELL 01 - WOHLER SITE" ~ "Russian River",
+    matched_facility_name == "OAK BIRCH COMPOSITE - RAW - INACTIVE" ~ "YUCAIPA VALLEY WATER DISTRICT Local Creeks",
+    matched_facility_name == "WELL 04" ~ "Salinas River",
+    matched_facility_name == "LOWER/VENTANA SPRING" ~ "VENTANA BIG SUR INN WS Lower Springs"))%>%
   filter(!is.na(Source))%>%
   arrange(matched_facility_name)%>%
   rbind(string_matches%>%select(-similarity_score))
 
+master_key%>%arrange(matched_facility_name)
+```
+
+Join lat/longs from matched clearinghouse facilities back to network data
+```{r}
 missing_source_locations%>%
   select(PWSID, Source)%>%
   left_join(., master_key, by = c("Source", "PWSID"))
+
+network%>%
+  left_join(., master_key, by = c("Source", "PWSID"))%>%
+  mutate(Source_lat = ifelse(is.na(Source_lat), clearinghouse_lat, Source_lat),
+         Source_lon = ifelse(is.na(Source_lon), clearinghouse_long, Source_lon))%>%
+  select(-c(matched_facility_name:clearinghouse_long))
 ```
 
+## Project
+
+Clean up project column and split into 3 separate dummy variables for 1) SWP, 2) CVP, and 3) Colorado.
+Override if source type is another PWS (ex: either ‘purchased’ or NA)
+
+```{r}
+table(network$Project)
+
+network = network%>%
+  mutate(
+    swp = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("SWP", Project) ~ 1,
+      T ~ 0),
+    cvp = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("CVP", Project) ~ 1,
+      T ~ 0),
+    colorado = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("Colorado|Coloardo", Project) ~ 1,
+      T ~ 0))
+```
+
+For later: 
+Take another look at rows with project marked as >1, revise if needed
+Validation with lists of SWP/CVP contractors
+
+```{r}
+network%>%
+  filter(swp + cvp + colorado > 1)
+```
 
 
 
