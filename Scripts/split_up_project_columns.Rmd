@@ -18,10 +18,9 @@ knitr::opts_knit$set(root.dir = here())
 
 # Import data
 
-Most recent draft of our network data
-Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+Load in cleaned & deduplicated network data
 ```{r}
-network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
+network = read.csv("Data/Outputs/20251002_network_data_cleaned.csv")
 ```
 
 # Project column
@@ -45,12 +44,8 @@ project_cols = network%>%
       grepl("Colorado|Coloardo", Project) ~ 1,
       T ~ 0))%>%
   select(PWSID, Source, swp, cvp, colorado)
-
-network%>%
-  group_by(PWSID, Source)%>%
-  filter(n() > 1)
-  select(PWSID, Source, Source_type, Project)
 ```
+
 # Export
 ```{r}
 write.csv(project_cols, "Data/Outputs/20251002_project_columns.csv", row.names = F)

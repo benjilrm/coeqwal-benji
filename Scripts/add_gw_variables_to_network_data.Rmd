@@ -32,7 +32,7 @@ knitr::opts_knit$set(root.dir = here())
 Draft version of a network dataset of public water systems compiled by the team. 
 
 ```{r}
-network_raw = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
+network_raw = read.csv("Data/Outputs/20251002_network_data_cleaned.csv")
 ```
 
 Note that the data is by source, so PWSIDs are repeated for as many water sources as the system has. 
