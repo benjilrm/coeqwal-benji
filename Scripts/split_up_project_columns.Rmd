@@ -46,20 +46,23 @@ project_cols = network%>%
       T ~ 0))%>%
   select(PWSID, Source, swp, cvp, colorado)
 
-project_cols
-
-left_join(network, project_cols, by = c("PWSID", "Source"))
-
 network%>%
   group_by(PWSID, Source)%>%
   filter(n() > 1)
   select(PWSID, Source, Source_type, Project)
-
 ```
+# Export
+```{r}
+write.csv(project_cols, "Data/Outputs/20251002_project_columns.csv", row.names = F)
+```
+
+
 
 For later: 
 Take another look at rows with project marked as >1, revise if needed
 Validation with lists of SWP/CVP contractors
+
+Take a look at column with project marked "Yes"
 
 ```{r}
 network%>%
