@@ -1,0 +1,67 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Most recent draft of our network data
+Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+```{r}
+network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
+```
+
+# Project column
+
+Clean up project column and split into 3 separate dummy variables for 1) SWP, 2) CVP, and 3) Colorado.
+Override if source type is another PWS (ex: either ‘purchased’ or NA)
+
+```{r}
+project_cols = network%>%
+  mutate(
+    swp = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("SWP", Project) ~ 1,
+      T ~ 0),
+    cvp = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("CVP", Project) ~ 1,
+      T ~ 0),
+    colorado = case_when(
+      Source_type == "PWS" ~ NA,
+      grepl("Colorado|Coloardo", Project) ~ 1,
+      T ~ 0))%>%
+  select(PWSID, Source, swp, cvp, colorado)
+
+project_cols
+
+left_join(network, project_cols, by = c("PWSID", "Source"))
+
+network%>%
+  group_by(PWSID, Source)%>%
+  filter(n() > 1)
+  select(PWSID, Source, Source_type, Project)
+
+```
+
+For later: 
+Take another look at rows with project marked as >1, revise if needed
+Validation with lists of SWP/CVP contractors
+
+```{r}
+network%>%
+  filter(swp + cvp + colorado > 1)
+```
