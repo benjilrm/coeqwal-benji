@@ -66,7 +66,7 @@ network = network%>%
 Join lat/longs from matched clearinghouse facilities back to network data.
 Replace Source_lat & Source_lon columns with lat/longs from clearinghouse for rows in which we were able to find the lat/long in the SAFER clearinghouse data
 ```{r}
-network = network%>%
+network_joined = network%>%
   left_join(., master_key, by = c("Source", "PWSID"))%>%
   mutate(Source_lat = ifelse(is.na(Source_lat), clearinghouse_lat, Source_lat),
          Source_lon = ifelse(is.na(Source_lon), clearinghouse_long, Source_lon))%>%
@@ -75,20 +75,27 @@ network = network%>%
 
 Join in new project columns
 ```{r}
-network = network%>%
+network_joined = network_joined%>%
   left_join(network, project_cols, by = c("PWSID", "Source"))
 ```
 
 Join source IDs
 ```{r}
-network = network%>%
+network_joined = network_joined%>%
   left_join(., source_ids, by = "Source")
 ```
 
 Join gw variables
 ```{r}
-network = network%>%
+network_joined = network_joined%>%
   left_join(., network_pwsids_w_gw_variables, by = c("PWSID" = "pwsid"))
 ```
 
+# Export
+```{r}
+network_final = network_joined%>%
+  select(1:Source_number, source_id, Source, Source_summary, Source_type:Source_lon, Combined_source_notes, Project, X2020_CCR_percent:Average_source_method, Summer_2025_cleaning, CalSim_demandunit:CalSim_notes_Sept2025)
+
+write.csv(network_final, "Data/Outputs/20251002_network_data_joined", row.names = T)
+```
 
