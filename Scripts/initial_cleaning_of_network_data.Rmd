@@ -1,0 +1,78 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Most recent draft of our network data
+Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+
+```{r}
+network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")%>%
+  mutate(across(c(X2020_UWMP_percent, X2022_percent, X2023_percent, Average_source_usage),
+                as.numeric))
+```
+
+
+# Cleaning
+
+Text cleaning of source names, cleaning up wholesale column, standardise NAs.
+
+Filter out rows identified as duplicates
+```{r}
+network = network%>%
+  mutate(Source = gsub("\r\n", "", Source),
+         Is_wholesaler = case_when(
+           Is_wholesaler %in% c("N", "no") ~ "N",
+           Is_wholesaler == "NA" ~ NA,
+           Is_wholesaler == "Y" ~ "Y"),
+         across(where(is.character), ~na_if(., "NA")))
+```
+
+# Remove duplicates
+
+Get rid of any system/source duplicates based on manual review. This is necessary since we will join the new project columns we generate back to the master dataset by system/source combination, so we don't want any duplicates. 
+
+First, identify duplicates. 
+```{r}
+duplicates = network%>%
+  filter(Source_summary != "Purchased from city of Norco")%>%
+  group_by(PWSID, Source)%>%
+  filter(n() > 1)
+```
+
+For any PWSIDs with duplicates, subtract 1 from the total # of sources recorded for that PWSID
+```{r}
+network_cleaned = network%>%
+  filter(Source_summary != "Purchased from city of Norco")%>%
+  mutate(duplicate_pwsid = ifelse(PWSID %in% duplicates$PWSID, 1, 0),
+         Total_sources = ifelse(duplicate_pwsid == 1, Total_sources - 1, Total_sources),
+         Project = ifelse(Source_summary == "Solano Project via SCWA", "SWP", Project),
+         Combined_source_notes = ifelse(Source_summary == "Solano Project via SCWA", "2022 & 2023 may have included settlement water in this percentage. Includes additional settlement water with DWR via SCWA", Combined_source_notes))%>%
+  group_by(PWSID, Source)%>%
+  mutate(
+    across(c(X2020_UWMP_percent, X2022_percent, X2023_percent, Average_source_usage), 
+           ~ifelse(row_number() == 1, sum(.), .))) %>%
+  filter(row_number() == 1) %>%
+  ungroup()%>%
+  select(1:(ncol(.)-2))
+```
+# Export
+```{r}
+write.csv(network_cleaned, "Data/Outputs/20251002_network_data_cleaned.csv", row.names = F)
+```
+
