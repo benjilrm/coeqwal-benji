@@ -32,7 +32,7 @@ knitr::opts_knit$set(root.dir = here())
 Draft version of a network dataset of public water systems compiled by the team. 
 
 ```{r}
-network_raw = read_excel("Data/Source/Draft_networkdata_Summer2025_Aug25.xlsx")
+network_raw = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
 ```
 
 Note that the data is by source, so PWSIDs are repeated for as many water sources as the system has. 
@@ -46,7 +46,7 @@ network_pwsids = data.frame(pwsid = unique(network_raw$PWSID))
 network_pwsids%>%
   filter(!grepl("CA", pwsid))
 ```
-Although the dataset has 1117 rows, there are 861 unique PWSIDs, which we've now saved into a vector without duplicates. 
+Although the dataset has 1111 rows, there are 861 unique PWSIDs, which we've now saved into a vector without duplicates. 
 
 Note that there are 4 PWSs that aren't regulated any therefore do not have a 'normal' PWSID. Flagging as we will be assigning these values of NA for the groundwater variables.
 
@@ -63,7 +63,7 @@ load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
 ```
 
 Bring in another clearinghouse dataset with water system information so that we can filter for only facilities in community water systems. 
-```{r, eval = F}
+```{r}
 # system_type_data = read_xlsx("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", 
 #                            sheet = "WaterSystemInformation")%>%
 #   select(1, 3)%>%
@@ -128,9 +128,7 @@ check = clearinghouse_filtered%>%
   arrange(water_system_id, facility_id)%>%
   unique()
 
-check
-
-write.csv(check, "Data/Outputs/20250902_facilities_to_check.csv", row.names = F)
+#write.csv(check, "Data/Outputs/20250902_facilities_to_check.csv", row.names = F)
 ```
 
 ## EDT
@@ -236,9 +234,9 @@ addmargins(table(network_pwsids_w_gw_variables_excl_consecutive_connections$gw_a
 
 Export 2 separate csvs
 ```{r}
-write.csv(network_pwsids_w_gw_variables%>%select(-violation_rate), "Data/Outputs/20250904_network_pwsids_w_gw_variables.csv", row.names = F)
+write.csv(network_pwsids_w_gw_variables%>%select(-violation_rate), "Data/Outputs/20251002_network_pwsids_w_gw_variables.csv", row.names = F)
 
-write.csv(network_pwsids_w_gw_variables_excl_consecutive_connections%>%select(-violation_rate), "Data/Outputs/20250904_network_pwsids_w_gw_variables_excl_consecutive_connections.csv", row.names = F)
+write.csv(network_pwsids_w_gw_variables_excl_consecutive_connections%>%select(-violation_rate), "Data/Outputs/20251002_network_pwsids_w_gw_variables_excl_consecutive_connections.csv", row.names = F)
 ```
 
 
