@@ -1,0 +1,65 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Most recent draft of our network data
+Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+```{r}
+network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
+```
+
+# Clean data
+
+Text cleaning of source names
+```{r}
+network = network%>%
+  mutate(Source = gsub("\r\n", "", Source))
+```
+
+# Create source ID column
+Use PWSID as source ID if source type is a PWS, otherwise generating a numerical source ID for each source (grouping by source name since there can be multiple rows with the same source)
+```{r}
+source_ids = network%>%
+  group_by(Source) %>%
+  mutate(group_id = cur_group_id()) %>%
+  ungroup() %>%
+  mutate(source_id = ifelse(Source_type == "PWS", Source, group_id)) %>%
+  select(Source, source_id)%>%
+  unique()
+```
+
+Check to make sure it worked properly
+```{r}
+n_distinct(network$Source)
+n_distinct(network$source_id)
+
+network%>%
+  group_by(Source)%>%
+  filter(n_distinct(source_id) > 1)%>%
+  arrange(Source)
+```
+# Export
+```{r}
+write.csv(source_ids, "Data/Outputs/20251002_source_id_key.csv", row.names = F)
+```
+
+
+
+
+
