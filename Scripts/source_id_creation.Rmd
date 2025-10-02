@@ -37,7 +37,7 @@ Use PWSID as source ID if source type is a PWS, otherwise generating a numerical
 ```{r}
 source_ids = network%>%
   group_by(Source) %>%
-  mutate(group_id = cur_group_id()) %>%
+  mutate(group_id = paste("source", cur_group_id(), sep = "_")) %>%
   ungroup() %>%
   mutate(source_id = ifelse(Source_type == "PWS", Source, group_id)) %>%
   select(Source, source_id)%>%
@@ -47,9 +47,10 @@ source_ids = network%>%
 Check to make sure it worked properly
 ```{r}
 n_distinct(network$Source)
-n_distinct(network$source_id)
+n_distinct(source_ids$source_id)
 
 network%>%
+  left_join(., source_ids, by = "Source")%>%
   group_by(Source)%>%
   filter(n_distinct(source_id) > 1)%>%
   arrange(Source)
