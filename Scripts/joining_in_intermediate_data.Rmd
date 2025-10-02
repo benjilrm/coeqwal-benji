@@ -1,0 +1,103 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Most recent draft of our network data
+Downloaded from [box](https://berkeley.app.box.com/file/1987973103781?s=iy2wly7ej2heud3xzu2olsaj7qr0r5qd)
+```{r}
+network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")
+```
+
+Missing source lat/longs key
+```{r}
+master_key = read.csv("Data/Outputs/20251002_missing_source_lat_long_key.csv")
+```
+
+Source IDs
+```{r}
+source_ids = read.csv("Data/Outputs/20251002_source_id_key.csv")
+```
+
+Project columns
+```{r}
+project_cols = read.csv("Data/Outputs/20251002_project_columns.csv")
+```
+
+GW variables
+```{r}
+network_pwsids_w_gw_variables = read.csv("Data/Outputs/20250904_network_pwsids_w_gw_variables.csv")
+
+network_pwsids_w_gw_variables_excl_consecutive_connections = read.csv("Data/Outputs/20250904_network_pwsids_w_gw_variables_excl_consecutive_connections.csv")
+```
+
+
+
+# Cleaning
+
+Text cleaning of source names, cleaning up wholesale column, standardise NAs
+```{r}
+network = network%>%
+  mutate(Source = gsub("\r\n", "", Source),
+         Is_wholesaler = case_when(
+           Is_wholesaler %in% c("N", "no") ~ "N",
+           Is_wholesaler == "NA" ~ NA,
+           Is_wholesaler == "Y" ~ "Y"),
+         across(where(is.character), ~na_if(., "NA")))
+```
+
+# Joins
+
+Join lat/longs from matched clearinghouse facilities back to network data.
+Replace Source_lat & Source_lon columns with lat/longs from clearinghouse for rows in which we were able to find the lat/long in the SAFER clearinghouse data
+```{r}
+network = network%>%
+  left_join(., master_key, by = c("Source", "PWSID"))%>%
+  mutate(Source_lat = ifelse(is.na(Source_lat), clearinghouse_lat, Source_lat),
+         Source_lon = ifelse(is.na(Source_lon), clearinghouse_long, Source_lon))%>%
+  select(-c(matched_facility_name:clearinghouse_long))
+```
+
+Join in new project columns
+```{r}
+network = network%>%
+  left_join(network, project_cols, by = c("PWSID", "Source"))
+```
+
+Join source IDs
+```{r}
+network = network%>%
+  left_join(., source_ids, by = "Source")
+```
+
+Join gw variables
+```{r}
+network = network%>%
+  left_join(., network_pwsids_w_gw_variables, by = c("PWSID" = "pwsid"))
+  
+
+network%>%
+  filter(is.na(gw_access))
+```
+
+```{r}
+network_pwsids_w_gw_variables%>%
+  filter(grepl("CA28", pwsid))
+```
+
+
