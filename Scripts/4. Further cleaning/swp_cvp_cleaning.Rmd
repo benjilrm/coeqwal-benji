@@ -1,0 +1,41 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+
+# Import data
+
+## Network data
+Draft version of a network dataset of public water systems compiled by the team. 
+
+```{r}
+network = read_excel("Data/Source/Network data/Dataforprojectcolumncleaning_oct7.xlsx", na = "NA")
+```
+
+# Inspect Project
+```{r}
+write.csv(network%>%
+  filter(swp == 1)%>%
+  select(1, Source, Source_summary, source_id, Source_type, Project:Purchased)%>%
+  arrange(System_name), "Data/Outputs/20251007_swp_checks.csv", row.names = F)
+
+write.csv(network%>%
+  filter(cvp == 1)%>%
+  select(1, Source, Source_summary, source_id, Source_type, Project:Purchased)%>%
+  arrange(System_name), "Data/Outputs/20251014_cvp_checks.csv", row.names = F)
+```
+
