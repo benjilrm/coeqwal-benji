@@ -26,7 +26,9 @@ Draft version of a network dataset of public water systems compiled by the team.
 network = read_excel("Data/Source/Network data/Dataforprojectcolumncleaning_oct7.xlsx", na = "NA")
 ```
 
-# Inspect Project
+# Export systems with CVP/SWP sources
+
+We're going to export all the projects marked CVP & SWP, respectively, as csvs so we can upload to Google Drive and conduct manual review. Review spreadsheet is [here](https://docs.google.com/spreadsheets/d/18Vru2wzXIRMVdX7_TbDvwrnOCTRTYwHeUyGqmKzrp6Q/edit?gid=1977348654#gid=1977348654)
 ```{r}
 write.csv(network%>%
   filter(swp == 1)%>%
@@ -38,4 +40,62 @@ write.csv(network%>%
   select(1, Source, Source_summary, source_id, Source_type, Project:Purchased)%>%
   arrange(System_name), "Data/Outputs/20251014_cvp_checks.csv", row.names = F)
 ```
+
+
+# Join back reviewed data
+After manual review, we've gone through and made some changes to the source- and project-related columns. We import it back here and join it back into dataset of CVP/SWP systems
+
+First though, Kristin also made some edits in the meanwhile in box, so import updated version, and separate into project vs no project designated for ease of join
+```{r}
+network_new = read_excel("Data/Source/Network data/Dataforprojectcolumncleaning_oct15.xlsx", na = "NA")
+
+network_no_project = network_new%>%
+  filter(!swp %in% 1 & !cvp %in% 1)
+
+network_project = network_new%>%
+  filter(swp == 1 | cvp == 1)%>%
+  arrange(tolower(System_name))%>%
+  mutate(connection_id = row_number(),
+         System_name = gsub("GRIZZLY FLATS COMMUNITY SERVIC", "GRIZZLY FLATS COMMUNITY SERVICE", System_name))
+```
+
+```{r}
+reviewed_swp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251014_swp_systems_w_changes.csv")
+reviewed_cvp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251015_cvp_systems_w_changes.csv")
+
+reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
+  filter(System_name != "FOLSOM, CITY OF - MAIN")%>% # Remove row that was edited by Kristin in Box spreadsheet
+  rename_with(~ paste0("reviewed_", .))%>%
+  arrange(tolower(reviewed_System_name))%>%
+  mutate(connection_id = row_number())
+
+updated_project_systems = left_join(network_project, reviewed_all, by = c("PWSID" = "reviewed_PWSID", "connection_id"))%>%
+  mutate(
+    System_name = reviewed_System_name,
+    Source = reviewed_Source,
+    Source_summary = reviewed_Source_summary,
+    source_id = reviewed_source_id,
+    Source_type = reviewed_Source_type,
+    swp = reviewed_swp,
+    cvp = reviewed_cvp,
+    Purchased = reviewed_Purchased)%>%
+  select(-starts_with("reviewed_"))
+```
+
+
+And now we can bind this updated dataset back to the main network data
+```{r}
+final_connections = rbind(updated_project_systems%>%select(-connection_id), network_no_project)%>%
+  mutate(connection_id = row_number())
+```
+
+Export final copy for Kristin
+```{r}
+write.csv(final_connections, "Data/Outputs/20251015_network_data_post_project_cleaning.csv", row.names = F)
+```
+
+
+
+
+
 
