@@ -1,0 +1,177 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+
+# Import data
+
+## Network data
+Draft version of a network dataset of public water systems compiled by the team. 
+
+```{r}
+network = read_excel("Data/Source/Network data/Oct16dataforBenji.xlsx", na = "NA")
+```
+
+# Loop for project columns
+
+No path length version
+```{r}
+#Create the new columns
+network$swp_loop <- ifelse(is.na(network$swp), 0, network$swp)
+network$cvp_loop <- ifelse(is.na(network$cvp), 0, network$cvp)
+network$colorado_loop <- ifelse(is.na(network$colorado_incompleteandnotedited), 0, network$colorado_incompleteandnotedited)
+
+
+# Function to trace water sources
+trace_sources <- function(network) {
+  
+  # Start with systems that purchase from other PWS
+  systems_to_check <- which(network$Source_type == "PWS") 
+      
+  
+  max_iterations <- 10  # Safety limit to prevent infinite loops
+  iteration <- 0
+  changed <- TRUE
+  
+  while(changed && iteration < max_iterations) {
+    changed <- FALSE
+    iteration <- iteration + 1
+    
+    for(i in systems_to_check) {
+      current_source <- network$source_id[i]
+      
+      # Find all sources for this supplier system
+      supplier_sources <- which(network$PWSID == current_source)
+      
+      if(length(supplier_sources) > 0) {
+        
+        # Check if supplier has SWP or CVP water
+        supplier_has_SWP <- any(network$swp_loop[supplier_sources] == 1)
+        supplier_has_CVP <- any(network$cvp_loop[supplier_sources] == 1)
+        supplier_has_colorado <- any(network$colorado_loop[supplier_sources] == 1)
+        
+        # Update if we found new information
+        if(supplier_has_SWP && network$swp_loop[i] == 0) {
+          network$swp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_CVP && network$cvp_loop[i] == 0) {
+          network$cvp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_colorado && network$colorado_loop[i] == 0) {
+          network$colorado_loop[i] <- 1
+          changed <- TRUE}
+        }}}
+  
+  return(network)}
+
+# Run the function
+network <- trace_sources(network)
+```
+
+Path length version
+```{r}
+# Create the new columns
+network$swp_loop <- ifelse(is.na(network$swp), 0, network$swp)
+network$cvp_loop <- ifelse(is.na(network$cvp), 0, network$cvp)
+network$colorado_loop <- ifelse(is.na(network$colorado_incompleteandnotedited), 0, network$colorado_incompleteandnotedited)
+
+# Initialize path length column
+# Direct sources (non-PWS) get path length 1, PWS sources start at NA (to be calculated)
+network$path_length <- ifelse(network$Source_type != "PWS", 1, NA)
+
+# Function to trace water sources with generic path length
+trace_sources <- function(network) {
+  
+  # Start with systems that purchase from other PWS
+  systems_to_check <- which(network$Source_type == "PWS") 
+      
+  max_iterations <- 50  # Safety limit to prevent infinite loops
+  iteration <- 0
+  changed <- TRUE
+  
+  while(changed && iteration < max_iterations) {
+    changed <- FALSE
+    iteration <- iteration + 1
+    
+    for(i in systems_to_check) {
+      current_source <- network$source_id[i]
+      
+      # Find all sources for this supplier system
+      supplier_sources <- which(network$PWSID == current_source)
+      
+      if(length(supplier_sources) > 0) {
+        
+        # Check if supplier has SWP, CVP, or Colorado water
+        supplier_has_SWP <- any(network$swp_loop[supplier_sources] == 1)
+        supplier_has_CVP <- any(network$cvp_loop[supplier_sources] == 1)
+        supplier_has_colorado <- any(network$colorado_loop[supplier_sources] == 1)
+        
+        # Calculate path length: max path from suppliers + 1
+        supplier_paths <- network$path_length[supplier_sources]
+        valid_supplier_paths <- supplier_paths[!is.na(supplier_paths)]
+        
+        if(length(valid_supplier_paths) > 0) {
+          new_path_length <- max(valid_supplier_paths) + 1
+          
+          # Update path length if we found a longer path
+          if(is.na(network$path_length[i]) || new_path_length > network$path_length[i]) {
+            network$path_length[i] <- new_path_length
+            changed <- TRUE}}
+        
+        # Update project flags if we found new information
+        if(supplier_has_SWP && network$swp_loop[i] == 0) {
+          network$swp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_CVP && network$cvp_loop[i] == 0) {
+          network$cvp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_colorado && network$colorado_loop[i] == 0) {
+          network$colorado_loop[i] <- 1
+          changed <- TRUE}}}}
+  
+  return(network)}
+
+# Run the function
+network <- trace_sources(network)
+```
+
+
+```{r, eval = F}
+network%>%
+  select(1:2, source_id, Source_type, swp, cvp, swp_loop, cvp_loop, colorado_loop, Source, Purchased)%>%
+  filter(Source_type == "PWS")%>%
+  filter(swp_loop == 1 | cvp_loop == 1 | colorado_loop == 1)
+  arrange(-path_length)
+
+
+table(network$path_length, useNA = "always")
+```
+
+# Export
+
+```{r}
+write.csv(network, "Data/Outputs/20251017_network_data_projects_looped.csv", row.names = F)
+```
+
+
+
+
+

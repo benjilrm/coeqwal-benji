@@ -16,12 +16,24 @@ Set settings and universal variables
 knitr::opts_knit$set(root.dir = here())
 ```
 
-# Import data
+# Import and clean data
 
-Cleaned & deduplicated network data
+Network data
 ```{r}
-network = read.csv("Data/Outputs/20251002_network_data_cleaned.csv")
+network = read.csv("Data/Outputs/20251017_network_data_projects_looped.csv")%>%
+  select(-source_id)
 ```
+
+
+Cleaning up source ID errors from manual review
+```{r}
+network = network%>%
+  mutate(Source = case_when(
+    PWSID == "CA0110001" & grepl("South Bay Aqueduct", Source_summary) ~ "South Bay Aqueduct",
+    PWSID == "CA0110001" & grepl("Del Valle", Source_summary) ~ "Del Valle Reservoir",
+    T ~ Source))
+```
+
 
 # Create source ID column
 Use PWSID as source ID if source type is a PWS, otherwise generating a numerical source ID for each source (grouping by source name since there can be multiple rows with the same source)
@@ -35,20 +47,27 @@ source_ids = network%>%
   unique()
 ```
 
+
+# Join source IDs
+```{r}
+network_joined = network%>%
+  left_join(., source_ids, by = "Source")
+```
+
 Check to make sure it worked properly
 ```{r}
 n_distinct(network$Source)
+n_distinct(network_joined$source_id)
 n_distinct(source_ids$source_id)
 
-network%>%
-  left_join(., source_ids, by = "Source")%>%
+network_joined%>%
   group_by(Source)%>%
   filter(n_distinct(source_id) > 1)%>%
   arrange(Source)
 ```
 # Export
 ```{r}
-write.csv(source_ids, "Data/Outputs/20251002_source_id_key.csv", row.names = F)
+write.csv(network_joined, "Data/Outputs/20251017_network_w_source_ids.csv", row.names = F)
 ```
 
 
