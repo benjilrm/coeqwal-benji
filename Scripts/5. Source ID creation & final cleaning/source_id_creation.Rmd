@@ -31,7 +31,12 @@ network = network%>%
   mutate(Source = case_when(
     PWSID == "CA0110001" & grepl("South Bay Aqueduct", Source_summary) ~ "South Bay Aqueduct",
     PWSID == "CA0110001" & grepl("Del Valle", Source_summary) ~ "Del Valle Reservoir",
-    T ~ Source))
+    Source == "Kern County Water Agency" ~ "CA1510040",
+    Source == "San Benito County Water District" ~ "CA3510007",
+    T ~ Source),
+    Source = ifelse(str_detect(Source, "^CA[0-9]"), Source, str_to_title(Source)),
+    #System_name = str_to_title(System_name),
+    County = str_to_title(County))
 ```
 
 
@@ -65,12 +70,9 @@ network_joined%>%
   filter(n_distinct(source_id) > 1)%>%
   arrange(Source)
 ```
+
 # Export
 ```{r}
 write.csv(network_joined, "Data/Outputs/20251017_network_w_source_ids.csv", row.names = F)
 ```
-
-
-
-
 
