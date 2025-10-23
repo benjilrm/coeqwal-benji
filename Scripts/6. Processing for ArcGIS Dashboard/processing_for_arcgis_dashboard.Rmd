@@ -28,6 +28,9 @@ tmap_mode(mode = "view")
 Cleaned & deduplicated network data
 ```{r}
 network = read_excel("data/Source/Network data/Final data 10.22.25_latlonadded.xlsx", na = "NA")
+
+network%>%
+  filter(is.na(Purchased))
 ```
 
 # Cleaning and processing
@@ -48,7 +51,8 @@ network_clean = network%>%
     gw_access = case_when(
       gw_access_no_cc == 0 ~ "No Groundwater",
       gw_compliant_w_dw_standards_no_cc == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
-      gw_compliant_w_dw_standards_no_cc == 0 ~ "Groundwater access with no wells meeting MCL requirements"),
+      gw_compliant_w_dw_standards_no_cc == 0 ~ "Groundwater access with no wells meeting MCL requirements",
+      is.na(gw_access_no_cc) ~ "NA"),
     system_size = case_when(
       pop_served == 0 ~ NA,
       pop_served > 100000 ~ "Very Large",
@@ -63,7 +67,8 @@ network_clean = network%>%
       source_name == "Kern River" ~ "River",
       source_name == "Lake Havasu" ~ "Lake",
       source_name == "Lake Spaulding" ~ "Lake",
-      T ~ source_type))%>%
+      T ~ source_type),
+    source_id = as.numeric(gsub("source_", "", source_id)))%>%
   
   group_by(source_name)%>%
   mutate(num_systems_served = n(),
@@ -75,7 +80,7 @@ network_clean = network%>%
   mutate(num_sw_sources = n())%>%
   ungroup()%>%
 
-  select(-c(is_wholesaler, source_number, source_summary, source_id, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, connection_id, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc))%>%
+  select(-c(is_wholesaler, source_number, source_summary, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, connection_id, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc))%>%
   
   select(1:2,5:6,18,7,17,20,3:4, 8:9,19,10:11, 12:16)%>%
   rename(swp = swp_loop, cvp = cvp_loop)
@@ -89,6 +94,9 @@ Keep one row per system
 ```{r}
 systems_sf = network_clean%>%
   select(system_name:system_lon)%>%
+  group_by(pwsid)%>%
+  mutate(num_sw_sources = n())%>%
+  ungroup()%>%
   filter(!is.na(system_lat))%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
@@ -108,7 +116,10 @@ Exclude any PWS sources since these will be in the systems dataset.
 Convert to sf point object.
 ```{r}
 sources_sf = network_clean %>%
-  select(source_name, source_type, source_lat, source_lon) %>%
+  select(source_name, source_type, source_lat, source_lon, source_id) %>%
+  group_by(source_name)%>%
+  mutate(num_systems_served = n())%>%
+  ungroup()%>%
   filter(!is.na(source_lat) & source_type != "PWS") %>%
   unique()%>%
   st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs) %>%
@@ -140,6 +151,11 @@ tm_shape(connections_sf)+
   tm_dots(fill = "skyblue3", size = 0.25)+
   tm_shape(sources_sf)+
   tm_dots(fill = "coral2", size = 0.25)
+
+table(connections_sf$gw_access, useNA = "always")
+
+connections_sf%>%data.frame()%>%
+  filter(is.na(gw_access))
 ```
 
 # Export
