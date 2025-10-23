@@ -11,10 +11,14 @@ Scripts/
     │   └── missing_source_lat_longs.Rmd              # Using SAFER Clearinghouse data to fill in lat/longs for sources with missing location data
     ├── 2. Generating new columns/
     │   ├── add_gw_variables_to_network_data.Rmd      # Generating variables characterising PWS groundwater access
-    │   ├── source_id_creation.Rmd                    # Generating a unique ID for each source
     │   └── split_up_project_columns.Rmd              # Generating dummy variables indicating whether connections correspond to State Water Project, Central Valley Project, and Colorado River Aqueduct
-    └── 3. Joins/
-        └── joining_in_intermediate_data.Rmd          # Joining all new columns back into network data
+    ├── 3. Joins/
+    │   └── joining_in_intermediate_data.Rmd          # Joining all new columns back into network data
+    ├── 4. Reviewing project columns/
+    │   ├── swp_cvp_cleaning.Rmd                      # Exporting CVP/SWP systems for manual review, and joining reviewed systems back into master dataset
+    │   └── project_column_loops.Rmd                  # Looping through sources purchased from PWSs to fill in project columns
+    └── 5. Source ID creation & final cleaning
+    │   └── source_id_creation.Rmd                    # Generating a unique ID for each source in final dataset
 
 # Data Sources
 
