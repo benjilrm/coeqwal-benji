@@ -27,10 +27,7 @@ tmap_mode(mode = "view")
 
 Cleaned & deduplicated network data
 ```{r}
-network = read_excel("data/Source/Network data/Final data 10.22.25_latlonadded.xlsx", na = "NA")
-
-network%>%
-  filter(is.na(Purchased))
+network = read_excel("data/Source/Network data/Final data 10.27.25 latlon comp.xlsx", na = "NA")
 ```
 
 # Cleaning and processing
@@ -48,13 +45,15 @@ network_clean = network%>%
   rename_with(tolower)%>%
   
   mutate(
+    #purchased = ifelse(is.na(purchased), "Not applicable", purchased),
     gw_access = case_when(
       gw_access_no_cc == 0 ~ "No Groundwater",
       gw_compliant_w_dw_standards_no_cc == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
       gw_compliant_w_dw_standards_no_cc == 0 ~ "Groundwater access with no wells meeting MCL requirements",
-      is.na(gw_access_no_cc) ~ "NA"),
+      is.na(gw_access_no_cc) ~ "No data"),
+    pop_served = ifelse(pop_served <= 1, NA, pop_served),
     system_size = case_when(
-      pop_served == 0 ~ NA,
+      is.na(pop_served) ~ NA,
       pop_served > 100000 ~ "Very Large",
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
@@ -67,8 +66,7 @@ network_clean = network%>%
       source_name == "Kern River" ~ "River",
       source_name == "Lake Havasu" ~ "Lake",
       source_name == "Lake Spaulding" ~ "Lake",
-      T ~ source_type),
-    source_id = as.numeric(gsub("source_", "", source_id)))%>%
+      T ~ source_type))%>%
   
   group_by(source_name)%>%
   mutate(num_systems_served = n(),
@@ -80,7 +78,7 @@ network_clean = network%>%
   mutate(num_sw_sources = n())%>%
   ungroup()%>%
 
-  select(-c(is_wholesaler, source_number, source_summary, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, connection_id, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc))%>%
+  select(-c(is_wholesaler, source_number, source_summary, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc, connection_id, source_id))%>%
   
   select(1:2,5:6,18,7,17,20,3:4, 8:9,19,10:11, 12:16)%>%
   rename(swp = swp_loop, cvp = cvp_loop)
@@ -101,8 +99,10 @@ systems_sf = network_clean%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
   st_transform(ca_crs)
+```
 
-tm_shape(systems_sf%>%filter(pwsid == "CA3710707"))+
+```{r, eval = F}
+tm_shape(systems_sf)+
   tm_dots()
 ```
 
@@ -116,7 +116,7 @@ Exclude any PWS sources since these will be in the systems dataset.
 Convert to sf point object.
 ```{r}
 sources_sf = network_clean %>%
-  select(source_name, source_type, source_lat, source_lon, source_id) %>%
+  select(source_name, source_type, source_lat, source_lon) %>%
   group_by(source_name)%>%
   mutate(num_systems_served = n())%>%
   ungroup()%>%
@@ -125,8 +125,13 @@ sources_sf = network_clean %>%
   st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs) %>%
   st_transform(ca_crs)
 
-tm_shape(sources_sf)+
-  tm_dots()
+jittered_sources = sources_sf%>%
+  st_jitter(., amount = 1600)
+```
+
+```{r, eval = F}
+tm_shape(rbind(sources_sf%>%mutate(df = "original"), jittered_sources%>%mutate(df = "jittered")))+
+  tm_dots(col = "df", palette = c("red", "blue"))
 ```
 
 ## Connections
@@ -144,18 +149,15 @@ connections_sf = network_clean %>%
         byrow = TRUE)))) %>%
   st_as_sf(crs = wgs_crs) %>%
   st_transform(ca_crs)
+```
 
-tm_shape(connections_sf)+
+```{r, eval = F}
+tm_shape(connections_sf%>%filter(grepl("ARROWHEAD VILLAS", system_name)))+
   tm_lines()+
-  tm_shape(systems_sf)+
-  tm_dots(fill = "skyblue3", size = 0.25)+
+  tm_shape(systems_sf%>%filter(grepl("ARROWHEAD VILLAS", system_name)))+
+  tm_dots(fill = "coral2", size = 0.4)
   tm_shape(sources_sf)+
-  tm_dots(fill = "coral2", size = 0.25)
-
-table(connections_sf$gw_access, useNA = "always")
-
-connections_sf%>%data.frame()%>%
-  filter(is.na(gw_access))
+  tm_dots(fill = "skyblue3", size = 0.4)
 ```
 
 # Export
