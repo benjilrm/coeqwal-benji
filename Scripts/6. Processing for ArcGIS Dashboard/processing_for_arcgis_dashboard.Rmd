@@ -45,7 +45,7 @@ network_clean = network%>%
   rename_with(tolower)%>%
   
   mutate(
-    #purchased = ifelse(is.na(purchased), "Not applicable", purchased),
+    purchased = ifelse(is.na(purchased), "NA", purchased),
     gw_access = case_when(
       gw_access_no_cc == 0 ~ "No Groundwater",
       gw_compliant_w_dw_standards_no_cc == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
@@ -92,13 +92,22 @@ Keep one row per system
 ```{r}
 systems_sf = network_clean%>%
   select(system_name:system_lon)%>%
-  group_by(pwsid)%>%
-  mutate(num_sw_sources = n())%>%
-  ungroup()%>%
   filter(!is.na(system_lat))%>%
   unique()%>%
-  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
-  st_transform(ca_crs)
+  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
+```
+
+Wholesaler PWS's might have different lat/longs recorded when they appear as systems vs sources in the dataset. So I standardise by making sure each one has the same lat/long throughout.
+```{r}
+network_clean = systems_sf %>%
+  st_coordinates() %>%  
+  as.data.frame() %>%
+  rename(pws_lon = X, pws_lat = Y)%>%
+  mutate(source_name = systems_sf$pwsid)%>%
+  right_join(., network_clean, by = "source_name")%>%
+  mutate(source_lat = ifelse(is.na(pws_lat), source_lat, pws_lat),
+         source_lon = ifelse(is.na(pws_lon), source_lon, pws_lon))%>%
+  select(-c(pws_lat, pws_lon))
 ```
 
 ```{r, eval = F}
@@ -109,7 +118,7 @@ tm_shape(systems_sf)+
 
 ## Sources
 
-Keep one row per source, only selecting the first in each group (this is because multiple slightly different lat/longs are recorded for most source, so just taking the first one). 
+Keep one row per source
 
 Exclude any PWS sources since these will be in the systems dataset.
 
@@ -117,16 +126,14 @@ Convert to sf point object.
 ```{r}
 sources_sf = network_clean %>%
   select(source_name, source_type, source_lat, source_lon) %>%
-  group_by(source_name)%>%
-  mutate(num_systems_served = n())%>%
-  ungroup()%>%
   filter(!is.na(source_lat) & source_type != "PWS") %>%
   unique()%>%
-  st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs) %>%
-  st_transform(ca_crs)
+  st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)
 
 jittered_sources = sources_sf%>%
-  st_jitter(., amount = 1600)
+  st_transform(ca_crs)%>%
+  st_jitter(., amount = 1600)%>%
+  st_transform(wgs_crs)
 ```
 
 ```{r, eval = F}
@@ -135,6 +142,20 @@ tm_shape(rbind(sources_sf%>%mutate(df = "original"), jittered_sources%>%mutate(d
 ```
 
 ## Connections
+
+Put new jittered source coordinates in master dataset
+```{r}
+network_clean = jittered_sources %>%
+  st_coordinates() %>%  
+  as.data.frame() %>%
+  rename(source_lon_jittered = X, source_lat_jittered = Y)%>%
+  mutate(source_name = jittered_sources$source_name)%>%
+  right_join(., network_clean, by = "source_name")%>%
+  mutate(source_lat = ifelse(is.na(source_lat_jittered), source_lat, source_lat_jittered),
+         source_lon = ifelse(is.na(source_lon_jittered), source_lon, source_lon_jittered))%>%
+  select(-c(source_lat_jittered, source_lon_jittered))
+```
+
 
 Generate linestring from master connections dataframe based on source/system coordinates
 ```{r}
@@ -147,24 +168,24 @@ connections_sf = network_clean %>%
         c(source_lon, source_lat, system_lon, system_lat), 
         nrow = 2, 
         byrow = TRUE)))) %>%
-  st_as_sf(crs = wgs_crs) %>%
-  st_transform(ca_crs)
+  st_as_sf(crs = wgs_crs)
 ```
 
 ```{r, eval = F}
-tm_shape(connections_sf%>%filter(grepl("ARROWHEAD VILLAS", system_name)))+
+tm_shape(connections_sf)+
   tm_lines()+
-  tm_shape(systems_sf%>%filter(grepl("ARROWHEAD VILLAS", system_name)))+
-  tm_dots(fill = "coral2", size = 0.4)
-  tm_shape(sources_sf)+
+  tm_shape(systems_sf)+
+  tm_dots(fill = "coral2", size = 0.4)+
+  tm_shape(jittered_sources)+
   tm_dots(fill = "skyblue3", size = 0.4)
 ```
 
+
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251023_connections.shp", delete_dsn = T)
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251023_systems.shp", delete_dsn = T)
-st_write(sources_sf, "Data/Outputs/Shapefiles for dashboard/20251023_sources.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251029_connections.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251029_systems.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251029_sources.shp", delete_dsn = T)
 ```
 
 
