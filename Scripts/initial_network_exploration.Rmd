@@ -115,6 +115,10 @@ network_edges = network_master%>%
 
 network = graph_from_data_frame(network_edges, vertices = all_nodes, directed = T)
 is_bipartite(network)
+
+E(network)$average_source_usage = network_master$average_source_usage[match(
+  paste(network_master$source_name, network_master$pwsid, sep = "|"),
+  paste(ends(network, E(network))[,1], ends(network, E(network))[,2], sep = "|"))]
 ```
 
 # Analysis
@@ -128,13 +132,47 @@ system_centrality = all_nodes%>%
   rename(in_degree = num_sw_sources,
          out_degree = num_systems_served,
          pwsid = id)%>%
-  mutate(total_degree = in_degree + out_degree)%>%
+  mutate(
+    out_degree = replace_na(out_degree, 0),
+    total_degree = in_degree + out_degree)%>%
   arrange(-total_degree)%>%
   select(1,4,9,3,11,5:8)
+```
 
+Calculate betweenness centrality - systems that are major redistribution hubs (ie: measure of centrality based on shortest paths that pass through a given node)
+```{r}
+betweenness_all = betweenness(network, directed = TRUE)
+system_centrality$betweenness = betweenness_all[V(network)$type == "system"]
+```
+
+
+```{r}
 ggplot(system_centrality, aes(total_degree))+
   geom_histogram(fill = "coral2", colour = "black")+
   theme_bw()
+
+system_centrality%>%
+  group_by(system_size)%>%
+  reframe(in_degree = mean(in_degree, na.rm = T))%>%
+  #filter(!is.na(system_size))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "In-Degree Centrality")+
+  theme(legend.position = "none")
+
+
+system_centrality%>%
+  group_by(system_size)%>%
+  reframe(betweenness = mean(betweenness, na.rm = T))%>%
+  #filter(!is.na(system_size))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = betweenness, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Betweenness Centrality")+
+  theme(legend.position = "none")
 ```
 
 Out degree centrality for sources
@@ -154,11 +192,11 @@ ggplot(source_centrality, aes(out_degree))+
 
 Calculate shortest paths from sources to systems
 ```{r}
-sources <- V(network)[type == "source"]
-systems <- V(network)[type == "system"]
+sources = V(network)[type == "source"]
+systems = V(network)[type == "system"]
 
 # Get shortest paths from all sources to all systems
-path_length_matrix <- distances(network, v = sources, to = systems, mode = "out")
+path_length_matrix = distances(network, v = sources, to = systems, mode = "out")
 path_lengths = as.vector(path_length_matrix[is.finite(as.vector(path_length_matrix))])
 ```
 
@@ -179,8 +217,8 @@ Summary stats for systems' path lengths
 
 Right now, this is ONLY when systems are the final node on a path
 ```{r}
-data.frame(
-  system_id = systems$name,
+system_path_lengths = data.frame(
+  pwsid = systems$name,
   system_size = V(network)[systems]$system_size,
   provider_type = V(network)[systems]$provider_type,
   mean_path_length = apply(path_length_matrix, 2, function(x) mean(x[is.finite(x)])),
@@ -188,121 +226,71 @@ data.frame(
   max_path_length = apply(path_length_matrix, 2, function(x) max(x[is.finite(x)])),
   min_path_length = apply(path_length_matrix, 2, function(x) min(x[is.finite(x)])),
   n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))))%>%
-  arrange(-mean_path_length)
+  arrange(-max_path_length)
+  left_join(., system_nodes, by = c("pwsid" = "id"))
+  
+system_path_lengths%>%
+  group_by(system_size)%>%
+  reframe(mean_path_length = mean(mean_path_length, na.rm = T))%>%
+  #filter(!is.na(system_size))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Mean Path Length")+
+  theme(legend.position = "none")
 ```
+# Source diversity
+
+```{r}
+# Calculate HHI for each system
+system_diversity = sapply(systems, function(system) {
+  # Get edges going into this system (sources supplying it)
+  incoming_edges = E(network)[.to(system)]
+  
+  if (length(incoming_edges) == 0) return(NA)  # no sources
+  
+  # Get the usage percentages for this system's sources
+  usage_percentages = incoming_edges$average_source_usage/100
+  
+  # Calculate HHI (sum of squares of market shares, scaled 0-10000)
+  hhi = sum((usage_percentages * 100)^2)
+  
+  return(hhi)})
+
+# Create a diversity data frame
+diversity_df = data.frame(
+  system_id = systems$name,
+  system_size = V(network)[systems]$system_size,
+  hhi = system_diversity,
+  stringsAsFactors = FALSE,
+  row.names = NULL)
+
+diversity_df%>%
+  group_by(system_size)%>%
+  reframe(hhi = mean(hhi, na.rm = T))%>%
+  #filter(!is.na(system_size))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "HHI")+
+  theme(legend.position = "none")
+```
+
 
 
 # Bipartite project
 
 Create one-mode projection on systems (systems connected if they share sources)
 ```{r}
-system_adjacency <- bipartite.projection(network)$proj2
+system_adjacency = bipartite.projection(network)$proj2
 
 # Degree in the projection = number of other systems sharing sources
-system_shared_sources_degree <- degree(system_adjacency)
-system_degrees$shared_sources_degree <- system_shared_sources_degree
+system_shared_sources_degree = degree(system_adjacency)
+system_degrees$shared_sources_degree = system_shared_sources_degree
 ```
 
 
-```{r}
-# VULNERABILITY METRICS
-# 1. Source dependency ratio (for systems)
-system_degrees$source_dependency_ratio <- ifelse(
-  system_degrees$out_degree > 0, 
-  system_degrees$in_degree / system_degrees$out_degree, 
-  NA
-)
-
-# 2. Calculate betweenness centrality - systems that are bottlenecks
-betweenness_all <- betweenness(network, directed = TRUE)
-system_betweenness <- betweenness_all[V(network)$type == "system"]
-system_degrees$betweenness <- system_betweenness
-
-# 3. Calculate eigenvector centrality - systems connected to important systems
-eigen_centrality <- eigen_centrality(network, directed = TRUE)$vector
-system_degrees$eigen_centrality <- eigen_centrality[V(network)$type == "system"]
-
-# ADDITIONAL DROUGHT-RELATED METRICS
-# Incorporate your edge attributes for vulnerability analysis
-
-# If you have edge attributes for purchase arrangements
-if("purchased" %in% list.edge.attributes(network)) {
-  purchased_edges <- E(network)[purchased == 1]
-  
-  # Systems heavily reliant on purchased water
-  purchased_in_degree <- degree(network, v = V(network)[type == "system"], 
-                               mode = "in", loops = FALSE)[V(network)[type == "system"]]
-  system_degrees$purchased_water_dependency <- purchased_in_degree / 
-    ifelse(in_degree_systems > 0, in_degree_systems, 1)
-}
-
-# Source concentration index (Herfindahl-like)
-# For each system, how concentrated are their sources?
-source_weights <- sapply(V(network)[type == "system"], function(system) {
-  sources_to_system <- neighbors(network, system, mode = "in")
-  if(length(sources_to_system) == 0) return(NA)
-  
-  # If you have edge weights (e.g., volume), use them, otherwise equal weights
-  if("weight" %in% list.edge.attributes(network)) {
-    weights <- E(network)[to(system)]$weight
-    sum_weights <- sum(weights)
-    sum((weights/sum_weights)^2)  # Herfindahl index
-  } else {
-    # Simple concentration: 1/number of sources
-    1/length(sources_to_system)
-  }
-})
-system_degrees$source_concentration <- source_weights
-
-# MERGE WITH SYSTEM ATTRIBUTES
-# Assuming you have vertex attributes for system characteristics
-system_attributes <- data.frame(
-  system_id = V(network)[type == "system"]$name,
-  provider_type = V(network)[type == "system"]$provider_type,
-  system_size = V(network)[type == "system"]$system_size,
-  population_served = V(network)[type == "system"]$population_served
-)
-
-# Combine all metrics
-system_vulnerability <- merge(system_degrees, system_attributes, by = "system_id")
-
-# DROUGHT VULNERABILITY SCORING
-# Create a composite vulnerability score (example - adjust weights based on your research)
-system_vulnerability$vulnerability_score <- 
-  (scale(system_vulnerability$source_dependency_ratio) * 0.3) +
-  (scale(system_vulnerability$source_concentration) * 0.3) +
-  (scale(system_vulnerability$betweenness) * 0.2) +
-  (scale(ifelse(is.na(system_vulnerability$purchased_water_dependency), 0, 
-                system_vulnerability$purchased_water_dependency)) * 0.2)
-
-# IDENTIFY HIGH-RISK SYSTEMS
-high_risk_systems <- system_vulnerability[
-  system_vulnerability$vulnerability_score > 
-    quantile(system_vulnerability$vulnerability_score, 0.75, na.rm = TRUE),
-]
-
-cat("High-risk systems identified:", nrow(high_risk_systems), "\n")
-
-# SUMMARY STATISTICS BY SYSTEM CHARACTERISTICS
-library(dplyr)
-vulnerability_by_size <- system_vulnerability %>%
-  group_by(system_size) %>%
-  summarise(
-    mean_vulnerability = mean(vulnerability_score, na.rm = TRUE),
-    mean_source_dependency = mean(source_dependency_ratio, na.rm = TRUE),
-    n_systems = n()
-  )
-
-vulnerability_by_provider <- system_vulnerability %>%
-  group_by(provider_type) %>%
-  summarise(
-    mean_vulnerability = mean(vulnerability_score, na.rm = TRUE),
-    mean_shared_sources = mean(shared_sources_degree, na.rm = TRUE),
-    n_systems = n()
-  )
-
-print(vulnerability_by_size)
-print(vulnerability_by_provider)
-```
 
 
