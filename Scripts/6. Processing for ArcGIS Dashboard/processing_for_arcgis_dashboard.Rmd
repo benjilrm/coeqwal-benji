@@ -21,16 +21,33 @@ wgs_crs = 4326
 ca_crs = 3310
 
 tmap_mode(mode = "view")
+
+set.seed(124)
 ```
 
 # Import data
 
 Cleaned & deduplicated network data
 ```{r}
-network = read_excel("data/Source/Network data/Final data 10.27.25 latlon comp.xlsx", na = "NA")
+network = read_excel("data/Source/Network data/Final data 10.29.25 latlon comp.xlsx", na = "NA")
 ```
 
+```{r}
+master_system_lat_longs = read_excel("Data/Source/Network data/20251029_unified system latlons.xlsx")%>%
+  rename_with(tolower)%>%
+  rename(override_lat = latitude, override_lon = longitude)%>%
+  select(-name)
+
+master_system_lat_longs%>%
+  arrange(override_lat)%>%
+  group_by(override_lat, override_lon)%>%
+  filter(n() > 1)
+```
+
+
 # Cleaning and processing
+
+## Initial cleaning
 
 - Remove columns we definitely don't need
 - Rename columns and reorder remaining columns
@@ -53,7 +70,7 @@ network_clean = network%>%
       is.na(gw_access_no_cc) ~ "No data"),
     pop_served = ifelse(pop_served <= 1, NA, pop_served),
     system_size = case_when(
-      is.na(pop_served) ~ NA,
+      is.na(pop_served) ~ "NA",
       pop_served > 100000 ~ "Very Large",
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
@@ -69,9 +86,7 @@ network_clean = network%>%
       T ~ source_type))%>%
   
   group_by(source_name)%>%
-  mutate(num_systems_served = n(),
-         source_lat = first(na.omit(source_lat)),
-         source_lon = first(na.omit(source_lon)))%>%
+  mutate(num_systems_served = n())%>%
   ungroup()%>%
   
   group_by(pwsid)%>%
@@ -84,30 +99,61 @@ network_clean = network%>%
   rename(swp = swp_loop, cvp = cvp_loop)
 ```
 
+## Lat/long cleanup
+
+Override all system/source lat/longs with master list provided by Kristin
+
+```{r}
+network_w_lat_longs = network_clean%>%
+  
+  #systems
+  left_join(., master_system_lat_longs, by = "pwsid")%>%
+  mutate(system_lat = override_lat, system_lon = override_lon)%>%
+  select(-c(override_lat, override_lon))%>%
+  
+  #sources
+  left_join(., master_system_lat_longs, by = c("source_name" = "pwsid"))%>%
+  mutate(source_lat = ifelse(is.na(override_lat), source_lat, override_lat),
+         source_lon = ifelse(is.na(override_lon), source_lon, override_lon))%>%
+  select(-c(override_lat, override_lon))%>%
+
+  group_by(source_name)%>%
+  mutate(source_lat = first(na.omit(source_lat)),
+         source_lon = first(na.omit(source_lon)))%>%
+  ungroup()
+```
+
+Double check to make sure we just have 1 lat/long for each system regardless of whether it's receiving or transfering water
+```{r, eval = F}
+rbind(
+  network_w_lat_longs%>%
+    select(pwsid, system_lat, system_lon)%>%
+    unique()%>%
+    rename(lat = system_lat, lon = system_lon),
+  network_w_lat_longs%>%
+    filter(source_type == "PWS")%>%
+    select(source_name, source_lat, source_lon)%>%
+    unique()%>%
+    rename(pwsid = source_name, lat = source_lat, lon = source_lon))%>%
+  unique()%>%
+  arrange(pwsid)%>%
+  group_by(pwsid)%>%
+  reframe(n = n())%>%
+  filter(pwsid %in% as.vector(network_w_lat_longs%>%filter(source_type == "PWS")%>%pull(source_name)))%>%
+  filter(n > 1)
+```
+
+
 # Split into 3 datasets
 
 ## Systems
 
 Keep one row per system
 ```{r}
-systems_sf = network_clean%>%
+systems_sf = network_w_lat_longs%>%
   select(system_name:system_lon)%>%
-  filter(!is.na(system_lat))%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
-```
-
-Wholesaler PWS's might have different lat/longs recorded when they appear as systems vs sources in the dataset. So I standardise by making sure each one has the same lat/long throughout.
-```{r}
-network_clean = systems_sf %>%
-  st_coordinates() %>%  
-  as.data.frame() %>%
-  rename(pws_lon = X, pws_lat = Y)%>%
-  mutate(source_name = systems_sf$pwsid)%>%
-  right_join(., network_clean, by = "source_name")%>%
-  mutate(source_lat = ifelse(is.na(pws_lat), source_lat, pws_lat),
-         source_lon = ifelse(is.na(pws_lon), source_lon, pws_lon))%>%
-  select(-c(pws_lat, pws_lon))
 ```
 
 ```{r, eval = F}
@@ -124,8 +170,8 @@ Exclude any PWS sources since these will be in the systems dataset.
 
 Convert to sf point object.
 ```{r}
-sources_sf = network_clean %>%
-  select(source_name, source_type, source_lat, source_lon) %>%
+sources_sf = network_w_lat_longs%>%
+  select(source_name, source_type, num_systems_served, source_lat, source_lon) %>%
   filter(!is.na(source_lat) & source_type != "PWS") %>%
   unique()%>%
   st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)
@@ -145,12 +191,12 @@ tm_shape(rbind(sources_sf%>%mutate(df = "original"), jittered_sources%>%mutate(d
 
 Put new jittered source coordinates in master dataset
 ```{r}
-network_clean = jittered_sources %>%
+network_w_lat_longs = jittered_sources %>%
   st_coordinates() %>%  
   as.data.frame() %>%
   rename(source_lon_jittered = X, source_lat_jittered = Y)%>%
   mutate(source_name = jittered_sources$source_name)%>%
-  right_join(., network_clean, by = "source_name")%>%
+  right_join(., network_w_lat_longs, by = "source_name")%>%
   mutate(source_lat = ifelse(is.na(source_lat_jittered), source_lat, source_lat_jittered),
          source_lon = ifelse(is.na(source_lon_jittered), source_lon, source_lon_jittered))%>%
   select(-c(source_lat_jittered, source_lon_jittered))
@@ -159,8 +205,9 @@ network_clean = jittered_sources %>%
 
 Generate linestring from master connections dataframe based on source/system coordinates
 ```{r}
-connections_sf = network_clean %>%
-  filter(!is.na(source_lat) & !is.na(system_lat)) %>%
+connections_sf = network_w_lat_longs %>%
+  mutate(system_lat = as.numeric(system_lat), source_lat = as.numeric(source_lat))%>%
+  filter(!is.na(source_lat))%>%
   rowwise() %>%
   mutate(
     geometry = list(st_linestring(
@@ -169,6 +216,13 @@ connections_sf = network_clean %>%
         nrow = 2, 
         byrow = TRUE)))) %>%
   st_as_sf(crs = wgs_crs)
+```
+
+
+```{r, eval = F}
+connections_sf%>%
+  filter(source_lat == system_lat & system_lon == source_lon)%>%
+  select(system_name, pwsid, system_lat, system_lon, source_name, source_type, source_lat, source_lon)
 ```
 
 ```{r, eval = F}
@@ -183,9 +237,9 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251029_connections.shp", delete_dsn = T)
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251029_systems.shp", delete_dsn = T)
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251029_sources.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.shp", delete_dsn = T)
 ```
 
 
