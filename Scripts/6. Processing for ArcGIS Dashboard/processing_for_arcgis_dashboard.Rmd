@@ -29,19 +29,13 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read_excel("data/Source/Network data/Final data 10.29.25 latlon comp.xlsx", na = "NA")
+network = read_excel("data/Source/Network data/Final data 10.30.25 latlon comp.xlsx", na = "NA")
 ```
 
 ```{r}
-master_system_lat_longs = read_excel("Data/Source/Network data/20251029_unified system latlons.xlsx")%>%
+master_system_lat_longs = read_excel("Data/Source/Network data/20251030_unified system latlons.xlsx")%>%
   rename_with(tolower)%>%
-  rename(override_lat = latitude, override_lon = longitude)%>%
-  select(-name)
-
-master_system_lat_longs%>%
-  arrange(override_lat)%>%
-  group_by(override_lat, override_lon)%>%
-  filter(n() > 1)
+  rename(override_lat = latitude, override_lon = longitude)
 ```
 
 
@@ -238,8 +232,52 @@ tm_shape(connections_sf)+
 # Export
 ```{r}
 st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.gpkg", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.geojson", delete_dsn = T)
+
 st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.gpkg", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.geojson", delete_dsn = T)
+
 st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.gpkg", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.geojson", delete_dsn = T)
+```
+
+```{r}
+write.csv(
+network_w_lat_longs%>%
+  rename(swp_og = swp, cvp_og = cvp)%>%
+  mutate(across(everything(), ~case_when(. == "NA" | . == "No data" ~ NA, TRUE ~ .))),
+"Data/Outputs/20251030_network_data.csv", row.names = F)
+```
+
+```{r}
+write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_systems.gpkg")%>%
+  mutate(
+    lng = st_coordinates(.)[,1],
+    lat = st_coordinates(.)[,2]) %>%
+  st_drop_geometry(),
+  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_systems.csv", row.names = F)
+
+write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_sources.gpkg")%>%
+  mutate(
+    lng = st_coordinates(.)[,1],
+    lat = st_coordinates(.)[,2]) %>%
+  st_drop_geometry(),
+  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_sources.csv", row.names = F)
+
+write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_connections.gpkg")%>%
+  st_transform(4326) %>%
+  mutate(
+    # Extract first coordinate (start of line)
+    start_lng = map_dbl(geom, ~st_coordinates(.x)[1,1]),
+    start_lat = map_dbl(geom, ~st_coordinates(.x)[1,2]),
+    # Extract last coordinate (end of line)
+    end_lng = map_dbl(geom, ~st_coordinates(.x)[nrow(st_coordinates(.x)),1]),
+    end_lat = map_dbl(geom, ~st_coordinates(.x)[nrow(st_coordinates(.x)),2])) %>%
+  st_drop_geometry(),
+  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_connections.csv", row.names = F)
 ```
 
 

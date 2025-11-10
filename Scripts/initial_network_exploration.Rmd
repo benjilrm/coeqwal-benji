@@ -86,6 +86,8 @@ system_nodes = network_master%>%
   select(system_name:num_sw_sources)%>%
   unique()%>%
   rename(id = pwsid)
+
+table(system_nodes$system_size)
 ```
 
 Sources
@@ -143,14 +145,12 @@ Calculate betweenness centrality - systems that are major redistribution hubs (i
 ```{r}
 betweenness_all = betweenness(network, directed = TRUE)
 system_centrality$betweenness = betweenness_all[V(network)$type == "system"]
+
+system_centrality
 ```
 
-
+In-Degree
 ```{r}
-ggplot(system_centrality, aes(total_degree))+
-  geom_histogram(fill = "coral2", colour = "black")+
-  theme_bw()
-
 system_centrality%>%
   group_by(system_size)%>%
   reframe(in_degree = mean(in_degree, na.rm = T))%>%
@@ -159,9 +159,34 @@ system_centrality%>%
   ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
   geom_bar(stat = "identity")+
   theme_bw()+
-  labs(x = "System Size", y = "In-Degree Centrality")+
+  labs(x = "System Size", y = "Mean In-Degree Centrality")+
   theme(legend.position = "none")
 
+system_centrality%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
+  geom_boxplot()+
+  theme_bw()+
+  labs(x = "System Size", y = "In-Degree Centrality")+
+  theme(legend.position = "none")
+```
+
+Other degree
+```{r}
+ggplot(system_centrality, aes(total_degree))+
+  geom_histogram(fill = "coral2", colour = "black")+
+  theme_bw()
+
+system_centrality%>%
+  group_by(system_size)%>%
+  reframe(total_degree = mean(total_degree, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = total_degree, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Total Degree Centrality")+
+  theme(legend.position = "none")+
+  scale_y_log10()
 
 system_centrality%>%
   group_by(system_size)%>%
@@ -171,8 +196,17 @@ system_centrality%>%
   ggplot(aes(x = system_size, y = betweenness, fill = system_size))+
   geom_bar(stat = "identity")+
   theme_bw()+
-  labs(x = "System Size", y = "Betweenness Centrality")+
+  labs(x = "System Size", y = "Mean Betweenness Centrality")+
   theme(legend.position = "none")
+
+system_centrality%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = betweenness, fill = system_size))+
+  geom_boxplot()+
+  theme_bw()+
+  labs(x = "System Size", y = "Betweenness Centrality")+
+  theme(legend.position = "none")+
+  scale_y_log10()
 ```
 
 Out degree centrality for sources
@@ -227,8 +261,10 @@ system_path_lengths = data.frame(
   min_path_length = apply(path_length_matrix, 2, function(x) min(x[is.finite(x)])),
   n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))))%>%
   arrange(-max_path_length)
-  left_join(., system_nodes, by = c("pwsid" = "id"))
+  #left_join(., system_nodes, by = c("pwsid" = "id"))
   
+system_path_lengths
+
 system_path_lengths%>%
   group_by(system_size)%>%
   reframe(mean_path_length = mean(mean_path_length, na.rm = T))%>%
@@ -239,7 +275,16 @@ system_path_lengths%>%
   theme_bw()+
   labs(x = "System Size", y = "Mean Path Length")+
   theme(legend.position = "none")
+
+system_path_lengths%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
+  geom_boxplot()+
+  theme_bw()+
+  labs(x = "System Size", y = "Path Length")+
+  theme(legend.position = "none")
 ```
+
 # Source diversity
 
 ```{r}
@@ -274,10 +319,23 @@ diversity_df%>%
   ggplot(aes(x = system_size, y = hhi, fill = system_size))+
   geom_bar(stat = "identity")+
   theme_bw()+
+  labs(x = "System Size", y = "Mean HHI")+
+  theme(legend.position = "none")
+
+diversity_df%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
+  geom_boxplot()+
+  theme_bw()+
   labs(x = "System Size", y = "HHI")+
   theme(legend.position = "none")
 ```
+Kristin also mentioned [participation coefficient](https://www.google.com/url?q=https://www.nature.com/articles/s41467-017-01189-w%23:~:text%3DParticipation%2520coefficient,-Given%2520a%2520particular%26text%3Dwhere%2520%257BK_i%257D%2520is%2520the%2520sum,are%2520to%2520a%2520single%2520community&sa=D&source=docs&ust=1762796373372331&usg=AOvVaw3DkgsUakhBdOK-fW7kOtPS). 
+Seems like there are options to calculate it in R [example](https://search.r-project.org/CRAN/refmans/NetworkToolbox/html/participation.html)
 
+# Local density / cluster / community
+Kristin's hypothesis: on average, small systems will have less local density than large systems
+How can we test?
 
 
 # Bipartite project
