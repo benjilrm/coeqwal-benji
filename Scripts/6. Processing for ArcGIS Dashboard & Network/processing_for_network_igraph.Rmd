@@ -1,0 +1,136 @@
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(igraph)      # Network analysis
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Cleaned & deduplicated network data
+```{r}
+network = read_excel("data/Source/Network data/Final data 10.27.25 latlon comp.xlsx", na = "NA")
+```
+
+
+# Cleaning and processing
+
+- Remove columns we definitely don't need
+- Rename columns and reorder remaining columns
+- Convert any columns with 0/1 to No/Yes, or in the case of gw, combine both columns into one categorical column
+- Add new column for system size based on population served (thresholds provided by Kristin)
+- Clean up errors in source type column
+- Standardise all source lat/longs (there are currently different values for the same source)
+
+```{r}
+network_master = network%>%
+  rename(pop_served = Population_served_count, source_name = Source)%>%
+  rename_with(tolower)%>%
+  
+  mutate(
+    purchased = case_when(
+      purchased == "Yes" ~ 1,
+      purchased == "No" ~ 0,
+      T ~ NA),
+    pop_served = ifelse(pop_served <= 1, NA, pop_served),
+    system_size = case_when(
+      is.na(pop_served) ~ NA,
+      pop_served > 100000 ~ "Very Large",
+      pop_served > 10000 ~ "Large",
+      pop_served > 3300 ~ "Medium",
+      pop_served > 500 ~ "Small",
+      pop_served <= 500 ~ "Very Small"),
+    source_type = case_when(
+      source_name == "Kern River" ~ "River",
+      source_name == "Lake Havasu" ~ "Lake",
+      source_name == "Lake Spaulding" ~ "Lake",
+      T ~ source_type))%>%
+  
+  group_by(source_name)%>%
+  mutate(num_systems_served = n())%>%
+  ungroup()%>%
+  
+  group_by(pwsid)%>%
+  mutate(num_sw_sources = n())%>%
+  ungroup()%>%
+
+  select(-c(system_lat:system_lon, source_lat:source_lon, is_wholesaler, source_number, source_summary, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc, connection_id, source_id))%>%
+  
+  select(1:3,5,4,13,15, 6:7,14, 8:12)%>%
+  rename(swp = swp_loop, cvp = cvp_loop)
+```
+
+
+# Create network data
+
+
+## Nodes 
+
+Systems
+Keep one row per system
+```{r}
+system_nodes = network_master%>%
+  select(system_name:num_sw_sources)%>%
+  unique()%>%
+  rename(id = pwsid)
+
+table(system_nodes$system_size)
+```
+
+Sources
+Keep one row per source. Exclude any PWS sources since these will be in the systems dataset.
+```{r}
+source_nodes = network_master %>%
+  select(source_name:num_systems_served) %>%
+  unique()%>%
+  rename(id = source_name)
+```
+
+Combine
+```{r}
+all_nodes = full_join(source_nodes, system_nodes, by = "id")%>%
+  mutate(type = ifelse(is.na(system_name), "source", "system"))
+```
+
+
+
+## Edges
+
+Convert dataframe to igraph object (bipartite network). Add in all edge-related covariates
+```{r}
+network_edges = network_master%>%
+  select(source_name, pwsid)
+
+network = graph_from_data_frame(network_edges, vertices = all_nodes, directed = T)
+
+E(network)$average_source_usage = network_master$average_source_usage[match(
+  paste(network_master$source_name, network_master$pwsid, sep = "|"),
+  paste(ends(network, E(network))[,1], ends(network, E(network))[,2], sep = "|"))]
+```
+
+Check to make sure it's registered correctly in igraph as a bipartite network
+```{r}
+is_bipartite(network)
+```
+Great! Looks good to export
+
+# Export 
+
+Export igraph object as .Rdata
+```{r}
+save(network, all_nodes, file = "data/Outputs/20251112_network_igraph.Rdata")
+```
+
