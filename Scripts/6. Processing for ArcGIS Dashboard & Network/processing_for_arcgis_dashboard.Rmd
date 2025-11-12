@@ -47,7 +47,9 @@ master_system_lat_longs = read_excel("Data/Source/Network data/20251030_unified 
 - Rename columns and reorder remaining columns
 - Convert any columns with 0/1 to No/Yes, or in the case of gw, combine both columns into one categorical column
 - Add new column for system size based on population served (thresholds provided by Kristin)
+- Add new columns for # of systems served (for sources) and # of SW sources (for systems)
 - Clean up errors in source type column
+- Fix errors for 2+ different sources sharing same name when they are different sources
 - Standardise all source lat/longs (there are currently different values for the same source)
 
 ```{r}
@@ -56,6 +58,35 @@ network_clean = network%>%
   rename_with(tolower)%>%
   
   mutate(
+    source_name = gsub("'", "", source_name),
+    source_name = case_when(
+      source_name == "Anderson Spring" & county == "Lake" ~ "Anderson Springs CSD, Anderson Spring",
+      source_name == "Anderson Spring" & county == "Sierra" ~ "Sierra City, Anderson Spring",
+
+      source_name == "Canyon Creek" & county == "Placer" ~ "Placer CWA, Canyon Creek",
+      source_name == "Canyon Creek" & county == "Nevada" ~ "Washington WD, Canyon Creek",
+      
+      source_name == "Clear Creek" & county == "Shasta" ~ "Shasta CSA, Clear Creek",
+      source_name == "Clear Creek" & county == "Santa Cruz" ~ "San Lorenzo Valley WD, Clear Creek",
+      
+      source_name == "Fall Creek" & county == "Santa Cruz" ~ "Felton Water System, Fall Creek",
+      source_name == "Fall Creek" & county == "Siskiyou" ~ "City of Yreka, Fall Creek",
+      
+      source_name == "Mill Creek" & pwsid == "CA1200706" ~ "Trinidad RV, Mill Creek",
+      source_name == "Mill Creek" & pwsid == "CA1200553" ~ "Weott CSD, Mill Creek",
+      
+      source_name == "Mill Creek Spring" ~ "Foresthill Public Utility Dist, Mill Creek",
+      T ~ source_name),
+    
+    source_lat = case_when(
+      source_name == "Foresthill Public Utility Dist, Mill Creek" ~ 39.06713459841269,
+      source_name == "Lake Havasu" ~ 34.29384,
+      T ~ source_lat),
+    source_lon = case_when(
+      source_name == "Foresthill Public Utility Dist, Mill Creek" ~ -120.77255094125323,
+      source_name == "Lake Havasu" ~ -114.1686,
+      T ~ source_lon),
+    
     purchased = ifelse(is.na(purchased), "NA", purchased),
     gw_access = case_when(
       gw_access_no_cc == 0 ~ "No Groundwater",
@@ -92,6 +123,7 @@ network_clean = network%>%
   select(1:2,5:6,18,7,17,20,3:4, 8:9,19,10:11, 12:16)%>%
   rename(swp = swp_loop, cvp = cvp_loop)
 ```
+
 
 ## Lat/long cleanup
 
@@ -231,17 +263,17 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.shp", delete_dsn = T)
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.gpkg", delete_dsn = T)
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.geojson", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251112_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251112_connections.gpkg", delete_dsn = T)
+#st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.geojson", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.shp", delete_dsn = T)
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.gpkg", delete_dsn = T)
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.geojson", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251112_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251112_systems.gpkg", delete_dsn = T)
+#st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.geojson", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.shp", delete_dsn = T)
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.gpkg", delete_dsn = T)
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.geojson", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251112_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251112_sources.gpkg", delete_dsn = T)
+#st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.geojson", delete_dsn = T)
 ```
 
 ```{r}
@@ -251,36 +283,3 @@ network_w_lat_longs%>%
   mutate(across(everything(), ~case_when(. == "NA" | . == "No data" ~ NA, TRUE ~ .))),
 "Data/Outputs/20251030_network_data.csv", row.names = F)
 ```
-
-```{r}
-write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_systems.gpkg")%>%
-  mutate(
-    lng = st_coordinates(.)[,1],
-    lat = st_coordinates(.)[,2]) %>%
-  st_drop_geometry(),
-  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_systems.csv", row.names = F)
-
-write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_sources.gpkg")%>%
-  mutate(
-    lng = st_coordinates(.)[,1],
-    lat = st_coordinates(.)[,2]) %>%
-  st_drop_geometry(),
-  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_sources.csv", row.names = F)
-
-write.csv(st_read("Data/Outputs/Shapefiles for dashboard/20251030_connections.gpkg")%>%
-  st_transform(4326) %>%
-  mutate(
-    # Extract first coordinate (start of line)
-    start_lng = map_dbl(geom, ~st_coordinates(.x)[1,1]),
-    start_lat = map_dbl(geom, ~st_coordinates(.x)[1,2]),
-    # Extract last coordinate (end of line)
-    end_lng = map_dbl(geom, ~st_coordinates(.x)[nrow(st_coordinates(.x)),1]),
-    end_lat = map_dbl(geom, ~st_coordinates(.x)[nrow(st_coordinates(.x)),2])) %>%
-  st_drop_geometry(),
-  "C:/Users/benji/Desktop/COEQWAL/coeqwal-dashboard/Data/20251030_connections.csv", row.names = F)
-```
-
-
-
-
-
