@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
   library(tidyverse)   # Data wrangling
   library(here)        # File management
   library(igraph)      # Network analysis
+  library(GGally)      # Exploratory scatter plots
   })})
 ```
 
@@ -88,16 +89,16 @@ Summary stats for systems' path lengths
 Right now, this is ONLY when systems are the final node on a path
 ```{r}
 system_path_lengths = data.frame(
+  system_name = V(network)[systems]$system_name,
   pwsid = systems$name,
+  pop_served = V(network)[systems]$pop_served,
   system_size = V(network)[systems]$system_size,
-  provider_type = V(network)[systems]$provider_type,
   mean_path_length = apply(path_length_matrix, 2, function(x) mean(x[is.finite(x)])),
   median_path_length = apply(path_length_matrix, 2, function(x) median(x[is.finite(x)])),
   max_path_length = apply(path_length_matrix, 2, function(x) max(x[is.finite(x)])),
   min_path_length = apply(path_length_matrix, 2, function(x) min(x[is.finite(x)])),
   n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))))%>%
   arrange(-max_path_length)
-  #left_join(., system_nodes, by = c("pwsid" = "id"))
 ```
 
 ## Source diversity
@@ -120,8 +121,10 @@ system_diversity = sapply(systems, function(system) {
 
 # Create a diversity data frame
 diversity_df = data.frame(
-  system_id = systems$name,
+  system_name = V(network)[systems]$system_name,
+  pwsid = systems$name,
   system_size = V(network)[systems]$system_size,
+  pop_served = V(network)[systems]$pop_served,
   hhi = system_diversity,
   stringsAsFactors = FALSE,
   row.names = NULL)
@@ -270,4 +273,90 @@ system_path_lengths%>%
   labs(x = "System Size", y = "Path Length")+
   theme(legend.position = "none")
 ```
+
+# Summary stats
+
+System centrality metrics
+Filter for very small/small/medium systems
+```{r}
+system_centrality%>%
+  filter(pop_served <= 10000)%>%
+  select(in_degree:total_degree, betweenness)%>%
+  summary()
+
+system_centrality%>%filter(pop_served <= 10000)%>%
+  select(in_degree:total_degree, betweenness)%>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(value))+
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free")+
+  labs(title = "System Centrality Metrics", x = "Value", y = "# of Systems") +
+  theme_bw()
+```
+System path length
+```{r}
+system_path_lengths%>%
+  filter(pop_served <= 10000)%>%
+  select(mean_path_length:n_reachable_sources)%>%
+  summary()
+
+system_path_lengths%>%filter(pop_served <= 10000)%>%
+  select(mean_path_length:n_reachable_sources)%>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value")%>%
+  ggplot(aes(value))+
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free")+
+  labs(title = "System Path Lengths Metrics", x = "Value", y = "# of Systems") +
+  theme_bw()
+```
+
+System source diversity
+```{r}
+diversity_df%>%
+  filter(pop_served <= 10000)%>%
+  select(hhi)%>%
+  summary()
+
+diversity_df%>%filter(pop_served <= 10000)%>%
+  ggplot(aes(hhi))+
+  geom_histogram(fill = "steelblue", color = "black", alpha = 0.7) +
+  labs(title = "System Source Diversity Metric", x = "Herfindahl–Hirschman Index", y = "# of Systems") +
+  theme_bw()
+```
+
+# Relationship between metrics
+
+Let's make some quick scatter plots just to see the relationships between some of the system-level metrics we calculated
+```{r}
+master_systems = system_centrality%>%
+  select(pwsid, in_degree:total_degree, betweenness)%>%
+  left_join(., diversity_df%>%select(pwsid, hhi), by = "pwsid")%>%
+  left_join(., system_path_lengths%>%select(pwsid, mean_path_length:n_reachable_sources), by = "pwsid")
+
+ggpairs(master_systems[2:7])+
+  labs(title = "Scatterplot Matrix") +
+  theme_bw()
+```
+
+# Worst-performing systems
+
+Let's pull the worst-performing systems across various metrics
+```{r}
+#Systems with least source diversity
+diversity_df%>%
+  arrange(-hhi)%>%
+  head(10)
+
+#Systems with longest average path length
+system_path_lengths%>%
+  arrange(-mean_path_length)%>%
+  head(10)
+
+# Systems with just 1 source
+system_centrality%>%
+  filter(in_degree == 1)
+```
+
+
+
 
