@@ -16,9 +16,14 @@ Scripts/
     │   └── joining_in_intermediate_data.Rmd          # Joining all new columns back into network data
     ├── 4. Reviewing project columns/
     │   ├── swp_cvp_cleaning.Rmd                      # Exporting CVP/SWP systems for manual review, and joining reviewed systems back into master dataset
-    │   └── project_column_loops.Rmd                  # Looping through sources purchased from PWSs to fill in project columns
-    └── 5. Source ID creation & final cleaning
+    │   └── project_column_loops.Rmd                  # Looping through sources purchased from PWSs to fill in project columns 
+    ├── 5. Source ID creation & final cleaning
     │   └── source_id_creation.Rmd                    # Generating a unique ID for each source in final dataset
+    ├── 6. Processing for ArcGIS Dashboard & Network
+    │   ├── processing_for_network_igraph.Rmd         # Processing final master data into igraph format
+    │   └── processing_for_arcgis_dashboard .Rmd      # Processing final master data into shapefiles for upload to ArcGIS Online
+    └── 7. Network analysis
+        └── initial_network_exploration.Rmd           # Initial exploratory analysis and visualisations of network data in igraph
 
 # Data Sources
 
