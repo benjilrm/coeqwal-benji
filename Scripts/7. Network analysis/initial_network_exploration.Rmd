@@ -20,19 +20,39 @@ knitr::opts_knit$set(root.dir = here())
 
 # Import data
 
+## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
 load("Data/Outputs/20251112_network_igraph.Rdata")
 ``` 
 
+## Drought vulnerability
+
 DWR small system vulnerability data for validation, hosted on [this page](https://water.ca.gov/Programs/Water-Use-And-Efficiency/SB-552/SB-552-Tool) and downloaded as a csv from [this link](https://data.cnra.ca.gov/dataset/i07-water-shortage-vulnerability-small-water-systems).
 
 More information on documentation and methodology is available [here](https://data.cnra.ca.gov/dataset/water-shortage-vulnerability-technical-methods/resource/090baaf3-dc47-4e21-8eba-d9bf499a76a0)
 ```{r}
-dwr_vulnerability = read.csv("Data/Source/DWR Small System Vulnerability/i07_Water_Shortage_Vulnerability_Small_Water_Systems.csv")%>%
+dwr_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability/i07_Water_Shortage_Vulnerability_Small_Water_Systems.csv")%>%
   select(SABL_PWSID, SC5e_Drought_Impact)%>%
-  rename(pwsid = 1, dwr_drought = 2)%>%
-  mutate(dwr_drought = as.factor(ifelse(grepl("Listed as having", dwr_drought), 1, 0)))
+  rename(pwsid = 1, drought_vulnerable = 2)%>%
+  mutate(drought_vulnerable = ifelse(grepl("Listed as having", drought_vulnerable), 1, 0))
+```
+
+To get more commprehensive drought vulnerability data, we also add to this list a dataset of drought-vulnerable public water systems compiled by the Pacific Institute as part of [this](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA_Jan_2017.pdf) 2017 report. The data sources are also listed [here](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA-2017_Appendix1A_3.pdf). 
+```{r}
+pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability/Appendix-1B-Drought-Impacted-Public-Water-Systems.xlsx - DroughtImpactedPWS.csv")%>%
+  rename(pwsid = PWSID)%>%
+  select(pwsid)%>%
+  filter(pwsid != "")%>%
+  mutate(drought_vulnerable = 1)
+```
+
+Now we can combine the two. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
+```{r}
+comb_vulnerability = rbind(dwr_vulnerability, pacific_vulnerability)%>%
+  group_by(pwsid)%>%
+  reframe(drought_vulnerable = max(drought_vulnerable))%>%
+  ungroup()
 ```
 
 
@@ -153,7 +173,7 @@ How can we test?
 
 Create one-mode projection on systems (systems connected if they share sources)
 ```{r, eval = F}
-system_adjacency = bipartite.projection(network)$proj2
+system_adjacency = bipartite_projection(network)$proj2
 
 # Degree in the projection = number of other systems sharing sources
 system_shared_sources_degree = degree(system_adjacency)
@@ -171,11 +191,12 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
               select(id, system_name:num_sw_sources)%>%
               rename(pwsid = id), 
             by = "pwsid")%>%
-  left_join(., dwr_vulnerability, by = "pwsid")
+  left_join(., comb_vulnerability, by = "pwsid")%>%
+  mutate(drought_vulnerable = ifelse(pop_served > 3300, NA, drought_vulnerable))
   
 #rm(diversity_df, system_centrality, system_path_lengths, dwr_vulnerability)
 
-table(system_metrics_comb%>%filter(pop_served <= 10000)%>%pull(dwr_drought), useNA = "always")
+table(system_metrics_comb%>%filter(pop_served <= 3300)%>%pull(drought_vulnerable), useNA = "always")
 ```
 Seems like among the small systems, we have 61 NAs where we can't find that system's PWSID in the DWR vulnerability data. Bring up with Kristin. 
 
@@ -384,25 +405,25 @@ system_metrics_comb%>%
   filter(in_degree == 1)
 ```
 
-# Validation with DWR Vulnerability
+# Validation with Drought Vulnerability Data
 
 Plots comparing distributions of vulnerability metrics by DWR drought vulnerability assessment
 ```{r}
 system_metrics_comb%>%
-  filter(!is.na(dwr_drought))%>%
-  ggplot(aes(dwr_drought, hhi))+
+  filter(!is.na(drought_vulnerable))%>%
+  ggplot(aes(as.factor(drought_vulnerable), hhi))+
   geom_violin(fill = "coral1")+
   theme_bw()+
   labs(x = "DWR Drought Vulnerability", y = "HHI")
 system_metrics_comb%>%
-  filter(!is.na(dwr_drought))%>%
-  ggplot(aes(dwr_drought, in_degree))+
+  filter(!is.na(drought_vulnerable))%>%
+  ggplot(aes(as.factor(drought_vulnerable), in_degree))+
   geom_violin(fill = "coral1")+
   theme_bw()+
   labs(x = "DWR Drought Vulnerability", y = "In-Degree Centrality")
 system_metrics_comb%>%
-  filter(!is.na(dwr_drought))%>%
-  ggplot(aes(dwr_drought, mean_path_length))+
+  filter(!is.na(drought_vulnerable))%>%
+  ggplot(aes(as.factor(drought_vulnerable), mean_path_length))+
   geom_violin(fill = "coral1")+
   theme_bw()+
   labs(x = "DWR Drought Vulnerability", y = "Mean Path Length to Source")
@@ -412,12 +433,12 @@ Quick statistical test to see if distribution is different by group
 Using mann-whitney test since data is non-parametric
 ```{r}
 summary_stats = system_metrics_comb%>%
-  filter(!is.na(dwr_drought))%>%
-  group_by(dwr_drought)%>%
+  filter(!is.na(drought_vulnerable))%>%
+  group_by(drought_vulnerable)%>%
   reframe(in_degree = mean(in_degree),
           mean_path_length = mean(mean_path_length),
           hhi = mean(hhi))%>%
-  mutate(dwr_drought = ifelse(dwr_drought == 0, "no_drought_vulnerability_mean", "drought_vulnerability_mean"))
+  mutate(drought_vulnerable = ifelse(drought_vulnerable == 0, "no_drought_vulnerability_mean", "drought_vulnerability_mean"))
 summary_stats = summary_stats%>%
   t()%>%
   data.frame()%>%
@@ -427,9 +448,9 @@ summary_stats = summary_stats%>%
 
 mann_whitney_results <- system_metrics_comb %>%
   summarise(
-    in_degree_test = list(wilcox.test(in_degree ~ dwr_drought)),
-    hhi_test = list(wilcox.test(hhi ~ dwr_drought)),
-    mean_path_length_test = list(wilcox.test(mean_path_length ~ dwr_drought)))
+    in_degree_test = list(wilcox.test(in_degree ~ drought_vulnerable)),
+    hhi_test = list(wilcox.test(hhi ~ drought_vulnerable)),
+    mean_path_length_test = list(wilcox.test(mean_path_length ~ drought_vulnerable)))
 
 tibble(
   metric = c("in_degree", "hhi", "mean_path_length"),
@@ -453,7 +474,6 @@ tibble(
 
 rm(mann_whitney_results, summary_stats)
 ```
-
 Tests indicate that small systems not designated as drought-vulnerable tend to have lower in-degree (ie: less sources) and greater path length (ie: more removed from their original sources) than drought-vulnerable systems. HHI is not significant. 
 
 
