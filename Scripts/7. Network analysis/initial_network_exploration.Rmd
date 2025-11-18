@@ -99,9 +99,13 @@ Calculate shortest paths from sources to systems
 sources = V(network)[type == "source"]
 systems = V(network)[type == "system"]
 
-# Get shortest paths from all sources to all systems
+# Get shortest paths between all sources to all systems
 path_length_matrix = distances(network, v = sources, to = systems, mode = "out")
-path_lengths = as.vector(path_length_matrix[is.finite(as.vector(path_length_matrix))])
+#path_lengths = as.vector(path_length_matrix[is.finite(as.vector(path_length_matrix))])
+
+
+# Get shortest paths between all systems (for reachable systems calculation)
+system_to_system_matrix = distances(network, v = systems, to = systems, mode = "out")
 ```
 
 Summary stats for sources' path lengths
@@ -127,10 +131,11 @@ system_path_lengths = data.frame(
   median_path_length = apply(path_length_matrix, 2, function(x) median(x[is.finite(x)])),
   max_path_length = apply(path_length_matrix, 2, function(x) max(x[is.finite(x)])),
   min_path_length = apply(path_length_matrix, 2, function(x) min(x[is.finite(x)])),
-  n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))))%>%
+  n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))),
+  n_reachable_systems = apply(system_to_system_matrix, 1, function(x) sum(is.finite(x)) - 1)) %>%  # Subtract 1 to exclude self
   arrange(-max_path_length)
 
-rm(path_lengths, path_length_matrix)
+rm(path_length_matrix)
 ```
 
 ## Source diversity
@@ -165,6 +170,17 @@ Kristin also mentioned [participation coefficient](https://www.google.com/url?q=
 
 Seems like there are options to calculate it in R [example](https://search.r-project.org/CRAN/refmans/NetworkToolbox/html/participation.html)
 
+
+```{r}
+system_metrics_comb%>%
+  filter(hhi > 10000)
+
+as_data_frame(network, what = "edges")%>%
+  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
+```
+Just flagging there are a few systems with more than the max HHI (10000) because their average source usages add up to over 100%
+
+
 ## Local density / cluster / community
 Kristin's hypothesis: on average, small systems will have less local density than large systems
 How can we test?
@@ -191,12 +207,11 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
               select(id, system_name:num_sw_sources)%>%
               rename(pwsid = id), 
             by = "pwsid")%>%
-  left_join(., comb_vulnerability, by = "pwsid")%>%
-  mutate(drought_vulnerable = ifelse(pop_served > 3300, NA, drought_vulnerable))
+  left_join(., comb_vulnerability, by = "pwsid")
   
 #rm(diversity_df, system_centrality, system_path_lengths, dwr_vulnerability)
 
-table(system_metrics_comb%>%filter(pop_served <= 3300)%>%pull(drought_vulnerable), useNA = "always")
+table(system_metrics_comb$drought_vulnerable, useNA = "always")
 ```
 Seems like among the small systems, we have 61 NAs where we can't find that system's PWSID in the DWR vulnerability data. Bring up with Kristin. 
 
@@ -329,14 +344,35 @@ system_metrics_comb%>%
 
 # Summary stats
 
-System centrality metrics
+System network metrics
 Filter for very small/small/medium systems
 ```{r}
 system_metrics_comb%>%
   filter(pop_served <= 10000)%>%
-  select(in_degree:total_degree, betweenness)%>%
-  summary()
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  #summary()%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+  select(variable, mean, sd, min, max, range, Q0.25, median, Q0.75, IQR = Q0.75 - Q0.25)
 
+library(psych)
+
+summary_table <- system_metrics_comb %>%
+  filter(pop_served <= 10000) %>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems) %>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  select(variable, mean, sd, min, max, range, Q0.25, median, Q0.75, IQR = Q0.75 - Q0.25)
+
+# View the table
+print(summary_table)
+```
+
+Plots
+```{r}
 system_metrics_comb%>%filter(pop_served <= 10000)%>%
   select(in_degree:total_degree, betweenness)%>%
   pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
@@ -345,13 +381,6 @@ system_metrics_comb%>%filter(pop_served <= 10000)%>%
   facet_wrap(~variable, scales = "free")+
   labs(title = "System Centrality Metrics", x = "Value", y = "# of Systems") +
   theme_bw()
-```
-System path length
-```{r}
-system_metrics_comb%>%
-  filter(pop_served <= 10000)%>%
-  select(mean_path_length:n_reachable_sources)%>%
-  summary()
 
 system_metrics_comb%>%filter(pop_served <= 10000)%>%
   select(mean_path_length:n_reachable_sources)%>%
@@ -361,14 +390,6 @@ system_metrics_comb%>%filter(pop_served <= 10000)%>%
   facet_wrap(~variable, scales = "free")+
   labs(title = "System Path Lengths Metrics", x = "Value", y = "# of Systems") +
   theme_bw()
-```
-
-System source diversity
-```{r}
-system_metrics_comb%>%
-  filter(pop_served <= 10000)%>%
-  select(hhi)%>%
-  summary()
 
 system_metrics_comb%>%filter(pop_served <= 10000)%>%
   ggplot(aes(hhi))+
@@ -381,7 +402,14 @@ system_metrics_comb%>%filter(pop_served <= 10000)%>%
 
 Let's make some quick scatter plots just to see the relationships between some of the system-level metrics we calculated
 ```{r}
-ggpairs(system_metrics_comb[c(2:6, 11)])+
+system_metrics_comb%>%
+  filter(hhi > 10000)
+
+as_data_frame(network, what = "edges")%>%
+  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
+
+
+ggpairs(system_metrics_comb[c(2:3, 5:6, 12)])+
   labs(title = "Scatterplot Matrix") +
   theme_bw()
 ```
@@ -474,7 +502,7 @@ tibble(
 
 rm(mann_whitney_results, summary_stats)
 ```
-Tests indicate that small systems not designated as drought-vulnerable tend to have lower in-degree (ie: less sources) and greater path length (ie: more removed from their original sources) than drought-vulnerable systems. HHI is not significant. 
+Tests indicate that small systems designated as drought-vulnerable tend to have greater in-degree (ie: more sources) and shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI is not significant. 
 
 
 
