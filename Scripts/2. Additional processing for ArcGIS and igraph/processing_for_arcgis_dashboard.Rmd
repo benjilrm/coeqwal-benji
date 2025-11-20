@@ -1,0 +1,211 @@
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(sf)          # Spatial processing
+  library(tmap)        # Maps
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+wgs_crs = 4326
+ca_crs = 3310
+
+tmap_mode(mode = "view")
+
+set.seed(124)
+```
+
+# Import data
+
+Cleaned & deduplicated network data
+```{r}
+network = read.csv("Data/Outputs/20251017_network_joined.csv")
+```
+
+
+# Cleaning and processing
+
+## Initial cleaning
+
+- Remove columns we definitely don't need
+- Convert any columns with 0/1 to No/Yes, or in the case of gw, combine both columns into one categorical column
+- Add new column for system size based on population served (thresholds provided by Kristin)
+
+```{r}
+network_clean = network%>%
+  
+  mutate(
+    purchased = ifelse(purchased == 0, "No", "Yes"),
+    gw_access_text = case_when(
+      gw_access == 0 ~ "No Groundwater",
+      gw_compliant_w_dw_standards == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
+      gw_compliant_w_dw_standards == 0 ~ "Groundwater access with no wells meeting MCL requirements",
+      is.na(gw_access) ~ "No data"),
+    system_size = case_when(
+      is.na(pop_served) ~ "NA (Wholesale Provider)",
+      pop_served > 100000 ~ "Very Large (>100,000)",
+      pop_served > 10000 ~ "Large (10,000-100,000",
+      pop_served > 3300 ~ "Medium (3,300-10,000)",
+      pop_served > 500 ~ "Small (500-3,300)",
+      pop_served <= 500 ~ "Very Small (<500"),
+    swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
+    cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
+
+  select(-c(is_wholesale, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp:colorado, colorado_loop, connection_id, source_id, state_classification))%>%
+  
+  rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
+```
+
+
+## Lat/long cleanup
+
+Standardise all source lat/longs (there are currently different values for the same source)
+```{r}
+network_w_lat_longs = network_clean%>%
+
+  group_by(source_name)%>%
+  mutate(source_lat = first(na.omit(source_lat)),
+         source_lon = first(na.omit(source_lon)))%>%
+  ungroup()%>%
+  
+  mutate(
+    source_lat = ifelse(source_name == "Lake Havasu", 34.29384, source_lat),
+    source_lon = ifelse(source_name == "Lake Havasu", -114.1686, source_lon))
+```
+
+Double check to make sure we just have 1 lat/long for each system regardless of whether it's receiving or transferring water
+```{r, eval = F}
+rbind(
+  network_w_lat_longs%>%
+    select(pwsid, system_lat, system_lon)%>%
+    unique()%>%
+    rename(lat = system_lat, lon = system_lon),
+  network_w_lat_longs%>%
+    filter(source_type == "PWS")%>%
+    select(source_name, source_lat, source_lon)%>%
+    unique()%>%
+    rename(pwsid = source_name, lat = source_lat, lon = source_lon))%>%
+  unique()%>%
+  arrange(pwsid)%>%
+  group_by(pwsid)%>%
+  reframe(n = n())%>%
+  filter(pwsid %in% as.vector(network_w_lat_longs%>%filter(source_type == "PWS")%>%pull(source_name)))%>%
+  filter(n > 1)
+```
+
+
+# Split into 3 datasets
+
+## Systems
+
+Keep one row per system
+```{r}
+systems_sf = network_w_lat_longs%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, system_size)%>%
+  unique()%>%
+  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
+```
+
+```{r, eval = F}
+tm_shape(systems_sf)+
+  tm_dots()
+```
+
+
+## Sources
+
+Keep one row per source
+
+Exclude any PWS sources since these will be in the systems dataset.
+
+Convert to sf point object.
+```{r}
+sources_sf = network_w_lat_longs%>%
+  select(source_name, source_type, num_systems_served, source_lat, source_lon) %>%
+  filter(!is.na(source_lat) & source_type != "PWS") %>%
+  unique()%>%
+  st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)
+
+jittered_sources = sources_sf%>%
+  st_transform(ca_crs)%>%
+  st_jitter(., amount = 1600)%>%
+  st_transform(wgs_crs)
+```
+
+```{r, eval = F}
+tm_shape(rbind(sources_sf%>%mutate(df = "original"), jittered_sources%>%mutate(df = "jittered")))+
+  tm_dots(col = "df", palette = c("red", "blue"))
+```
+
+## Connections
+
+Put new jittered source coordinates in master dataset
+```{r}
+network_w_lat_longs = jittered_sources %>%
+  st_coordinates() %>%  
+  as.data.frame() %>%
+  rename(source_lon_jittered = X, source_lat_jittered = Y)%>%
+  mutate(source_name = jittered_sources$source_name)%>%
+  right_join(., network_w_lat_longs, by = "source_name")%>%
+  mutate(source_lat = ifelse(is.na(source_lat_jittered), source_lat, source_lat_jittered),
+         source_lon = ifelse(is.na(source_lon_jittered), source_lon, source_lon_jittered))%>%
+  select(-c(source_lat_jittered, source_lon_jittered))
+```
+
+
+Generate linestring from master connections dataframe based on source/system coordinates
+```{r}
+connections_sf = network_w_lat_longs %>%
+  mutate(system_lat = as.numeric(system_lat), source_lat = as.numeric(source_lat))%>%
+  filter(!is.na(source_lat))%>%
+  rowwise() %>%
+  mutate(
+    geometry = list(st_linestring(
+      matrix(
+        c(source_lon, source_lat, system_lon, system_lat), 
+        nrow = 2, 
+        byrow = TRUE)))) %>%
+  st_as_sf(crs = wgs_crs)
+```
+
+
+```{r, eval = F}
+connections_sf%>%
+  filter(source_lat == system_lat & system_lon == source_lon)%>%
+  select(system_name, pwsid, system_lat, system_lon, source_name, source_type, source_lat, source_lon)
+```
+
+```{r, eval = F}
+tm_shape(connections_sf)+
+  tm_lines()+
+  tm_shape(systems_sf)+
+  tm_dots(fill = "coral2", size = 0.4)+
+  tm_shape(jittered_sources)+
+  tm_dots(fill = "skyblue3", size = 0.4)
+```
+
+
+# Export
+```{r}
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251120_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251120_connections.gpkg", delete_dsn = T)
+#st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.geojson", delete_dsn = T)
+
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251120_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251120_systems.gpkg", delete_dsn = T)
+#st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.geojson", delete_dsn = T)
+
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251120_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251120_sources.gpkg", delete_dsn = T)
+#st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.geojson", delete_dsn = T)
+```

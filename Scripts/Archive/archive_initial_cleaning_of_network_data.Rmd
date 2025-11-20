@@ -28,6 +28,15 @@ network = read_excel("Data/Source/Network data/Falldata_boxworking_oct1.xlsx")%>
 ```
 
 
+SAFER clearinghouse data
+This is an internal state water board dataset they shared with us for this project. All documentation is located in [this Google Drive folder](https://drive.google.com/drive/folders/1gxMrGeaOA_xtGb1zf97Z79EFEwKcIpCG).
+
+Unfortunately there is no data dictionary, but [Jenny has worked on developing one](https://docs.google.com/spreadsheets/d/1ulStajU7D1eFu2m3V0fTDtcm3PGNlneX/edit?gid=631545570#gid=631545570).
+```{r}
+load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+```
+
+
 # Cleaning
 
 Text cleaning of source names, cleaning up wholesale column, standardise NAs.
@@ -71,8 +80,32 @@ network_cleaned = network%>%
   ungroup()%>%
   select(1:(ncol(.)-2))
 ```
+
+
+
+
+Cleaning up source ID errors from manual review
+```{r}
+network_cleaned = network_cleaned%>%
+  mutate(Source = case_when(
+    PWSID == "CA0110001" & grepl("South Bay Aqueduct", Source_summary) ~ "South Bay Aqueduct",
+    PWSID == "CA0110001" & grepl("Del Valle", Source_summary) ~ "Del Valle Reservoir",
+    Source == "Kern County Water Agency" ~ "CA1510040",
+    Source == "San Benito County Water District" ~ "CA3510007",
+    T ~ Source),
+    Source = ifelse(str_detect(Source, "^CA[0-9]"), Source, str_to_title(Source)),
+    #System_name = str_to_title(System_name),
+    County = str_to_title(County))
+```
+
+
 # Export
 ```{r}
 write.csv(network_cleaned, "Data/Outputs/20251002_network_data_cleaned.csv", row.names = F)
 ```
+
+
+
+
+
 

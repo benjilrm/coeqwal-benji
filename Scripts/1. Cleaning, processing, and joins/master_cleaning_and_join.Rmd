@@ -1,0 +1,371 @@
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+## Network data
+```{r}
+network_raw = read.csv("Data/Source/Network data/Nov182025_finaldata_originalonly.csv")%>%
+  rename(pwsid = system_ID)
+```
+
+## Override lat/longs
+```{r}
+master_system_lat_longs = read_excel("Data/Source/Network data/20251030_unified system latlons.xlsx")%>%
+  rename_with(tolower)%>%
+  rename(override_lat = latitude, override_lon = longitude)
+```
+
+## CA SDWIS
+```{r}
+ca_sdwis = read_excel("Data/Source/SDWIS join columns/CA_SDWIS_Nov182025_allactivePWS.xlsx", skip = 1)%>%
+  rename(pwsid = 1, county = 6, state_classification = 3)%>%
+  mutate(county = str_to_title(county))%>%
+  select(pwsid, county, state_classification)
+```
+
+## EPA SDWIS
+```{r}
+epa_sdwis = read_excel("Data/Source/SDWIS join columns/EPASDWIS_Q12025_allactiveCAPWS.xlsx", skip = 4)%>%
+  rename(pwsid = 1, pop_served = 6, is_wholesale  = 12)%>%
+  mutate(is_wholesale = ifelse(is_wholesale == "N", 0, 1))%>%
+  select(pwsid, pop_served, is_wholesale)
+```
+
+
+## SAFER clearinghouse data
+This is an internal state water board dataset they shared with us for this project. All documentation is located in [this Google Drive folder](https://drive.google.com/drive/folders/1gxMrGeaOA_xtGb1zf97Z79EFEwKcIpCG).
+
+Unfortunately there is no data dictionary, but [Jenny has worked on developing one](https://docs.google.com/spreadsheets/d/1ulStajU7D1eFu2m3V0fTDtcm3PGNlneX/edit?gid=631545570#gid=631545570).
+
+```{r}
+# clearinghouse_raw = read_excel("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", sheet = "SourceReporting")
+
+#save(clearinghouse_raw, file = "Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+load("Data/Source/SAFER clearinghouse/safer_clearinghouse.RData")
+```
+
+Bring in another clearinghouse dataset with water system information so that we can filter for only facilities in community water systems. 
+```{r}
+# system_type_data = read_xlsx("Data/Source/SAFER clearinghouse/20250424_SAFER_CLEARINGHOUSE_EXPORT.xlsx", 
+#                            sheet = "WaterSystemInformation")%>%
+#   select(1, 3)%>%
+#   rename(water_system_id = 1, state_water_system_type = 2)%>%
+#   unique()
+
+#save(system_type_data, file = "Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
+load("Data/Source/SAFER clearinghouse/clearinghouse_system_type_data.RData")
+
+clearinghouse_joined = clearinghouse_raw%>%
+  left_join(., system_type_data, by = "water_system_id")%>%
+  filter(state_water_system_type == "COMMUNITY")%>%
+  unique()
+
+rm(system_type_data, clearinghouse_raw)
+```
+
+We want to filter for facilities with likely groundwater access. To do so, we will use the following filters:
+- Only active facilities
+- Exclude facilities serving as an emergency water source
+- Filter out any sources that are explicitly surface water, in both the clearinghouse and SDWIS water type columns
+- Filter out any springs, as these are considered surface water in our network dataset
+
+We also compiled the remaining 55 facilities that included 'spring' in the facility name and manually went through to decide which to filter out. 
+
+Finally, we decided to exclude consecutive connections from being considered groundwater access.
+```{r}
+clearinghouse_filtered = clearinghouse_joined%>%
+  filter(facility_activity_status == "Active" & 
+           sdwis_water_type != "Surface Water" & 
+           !clearinghouse_water_type %in% c("Surface Water", "Spring Water") &
+           facility_availability != "Emergency" &
+           facility_type != "Spring")%>%
+  mutate(index_facility_id = str_remove_all(index_facility_id, " "))%>%
+  select(water_system_id, facility_name, facility_id, index_facility_id, facility_availability, facility_activity_status:clearinghouse_water_type)
+
+manual_filter_out = c("CA1410500_001", "CA1410504_001", "CA1410507_001", "CA1410509_001", 
+                                  "CA1710012_001", "CA1710012_004", "CA2801016_001", "CA2801016_002", 
+                                  "CA2801016_003", "CA2801030_001", "CA3200175_005", "CA3310031_093", 
+                                  "CA3600106_003", "CA3600205_001", "CA3600257_002", "CA3600262_001", 
+                                  "CA3600262_004", "CA3600262_005", "CA5400511_001", "CA5400513_001", 
+                                  "CA5400513_002", "CA5400728_001", "CA5400738_001", "CA5400783_001", 
+                                  "CA5400826_001", "CA5400889_001", "CA5400916_001", "CA5400942_001", 
+                                  "CA5400959_001", "CA5401089_001", "CA5401093_001", "CA5401093_002", 
+                                  "CA5401093_003", "CA5403001_001", "CA5403020_001", "CA5500090_001", 
+                                  "CA5500175_001", "CA5500248_001", "CA5500250_001")
+
+clearinghouse_wo_consecutive_connections = clearinghouse_filtered %>%
+  filter(!index_facility_id %in% manual_filter_out & facility_type != "Consecutive Connection")
+
+rm(clearinghouse_joined, clearinghouse_filtered)
+```
+
+## EDT
+
+Drinking water quality data compiled by the State Water Resources Control Board and downloaded from [this page](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/EDTlibrary.html). Data dictionary is available [here](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/documents/edtlibrary/data_dictionary.pdf).
+
+Similarly, with the EDT data we want to filter for MCL violations, in addition to the groundwater-related filters in the SAFER clearinghouse data. We will only consider violations in the most recent dataset, containing data from Jan 1, 2023 to Present (last updated August 19, 2025)
+
+```{r}
+#edt = read_delim("Data/Source/EDT Library/SDWIS4/SDWIS4.tab", delim = "\t", escape_double = FALSE, trim_ws = TRUE)%>%
+  #clean_names()
+#save(edt, file = "Data/Source/EDT Library/edt4.Rdata")
+load("Data/Source/EDT Library/edt4.Rdata")
+```
+
+Filter for analyses with results in which the contaminant met or exceeded MCL levels
+```{r}
+edt_mcl = edt%>%
+  filter(result >= mcl)%>%
+  mutate(ps_code_clean = str_remove(ps_code, "_[^_]*$"), mcl_violation = 1)%>%
+  select(ps_code_clean, mcl_violation)
+
+rm(edt)
+```
+
+
+# Initial join
+```{r}
+network = network_raw%>%
+  left_join(., ca_sdwis, by = "pwsid")%>%
+  left_join(., epa_sdwis, by = "pwsid")
+
+rm(network_raw, ca_sdwis, epa_sdwis)
+```
+
+
+# Cleaning
+
+Cleaning up source errors from manual review
+```{r}
+network_clean = network%>%
+  mutate(source_name = case_when(
+    source_name == "Anderson Spring" & county == "Lake" ~ "Anderson Springs CSD, Anderson Spring",
+    source_name == "Anderson Spring" & county == "Sierra" ~ "Sierra City, Anderson Spring",
+
+    source_name == "Canyon Creek" & county == "Placer" ~ "Placer CWA, Canyon Creek",
+    source_name == "Canyon Creek" & county == "Nevada" ~ "Washington WD, Canyon Creek",
+      
+    source_name == "Clear Creek" & county == "Shasta" ~ "Shasta CSA, Clear Creek",
+    source_name == "Clear Creek" & county == "Santa Cruz" ~ "San Lorenzo Valley WD, Clear Creek",
+      
+    source_name == "Fall Creek" & county == "Santa Cruz" ~ "Felton Water System, Fall Creek",
+    source_name == "Fall Creek" & county == "Siskiyou" ~ "City of Yreka, Fall Creek",
+      
+    source_name == "Mill Creek" & pwsid == "CA1200706" ~ "Trinidad RV, Mill Creek",
+    source_name == "Mill Creek" & pwsid == "CA1200553" ~ "Weott CSD, Mill Creek",
+      
+    source_name == "Mill Creek Spring" ~ "Foresthill Public Utility Dist, Mill Creek",
+    T ~ source_name),
+    source_name = ifelse(str_detect(source_name, "^CA[0-9]"), source_name, str_to_title(source_name)),
+    
+    source_lat = ifelse(source_name == "Foresthill Public Utility Dist, Mill Creek", 39.06713459841269, source_lat),
+    source_lon = ifelse(source_name == "Foresthill Public Utility Dist, Mill Creek", -120.77255094125323, source_lon),
+    
+    pop_served = ifelse(pop_served <= 1, NA, pop_served),
+    
+    source_type = ifelse(source_name == "Solano Irrigation District", "Other supplier", source_type),
+    
+    purchased = ifelse(purchased == "Yes", 1, 0),
+    
+    connection_id = row_number())%>%
+    
+    group_by(source_name)%>%
+    mutate(num_systems_served = n())%>%
+    ungroup()%>%
+    
+    group_by(pwsid)%>%
+    mutate(num_sw_sources = n())%>%
+    ungroup()
+
+rm(network)
+```
+
+
+Lat/long cleanup
+
+Override all system/source lat/longs with master list provided by Kristin
+
+```{r}
+network_w_lat_longs = network_clean%>%
+  
+  #systems
+  left_join(., master_system_lat_longs, by = "pwsid")%>%
+  mutate(system_lat = override_lat, system_lon = override_lon)%>%
+  select(-c(override_lat, override_lon))%>%
+  
+  #sources
+  left_join(., master_system_lat_longs, by = c("source_name" = "pwsid"))%>%
+  mutate(source_lat = ifelse(is.na(override_lat), source_lat, override_lat),
+         source_lon = ifelse(is.na(override_lon), source_lon, override_lon))%>%
+  select(-c(override_lat, override_lon))
+
+rm(network_clean, master_system_lat_longs)
+```
+
+
+# Create source ID column
+Use PWSID as source ID if source type is a PWS, otherwise generating a numerical source ID for each source (grouping by source name since there can be multiple rows with the same source)
+```{r}
+source_ids = network_w_lat_longs%>%
+  group_by(source_name)%>%
+  mutate(group_id = paste("source", cur_group_id(), sep = "_")) %>%
+  ungroup()%>%
+  mutate(source_id = ifelse(source_type == "PWS", source_name, group_id)) %>%
+  select(source_name, source_id)%>%
+  unique()
+```
+
+Join source IDs back to dataset
+```{r}
+network_w_source_id = network_w_lat_longs%>%
+  left_join(., source_ids, by = "source_name")
+
+rm(network_w_lat_longs, source_ids)
+```
+
+
+# GW variables
+
+Join clearinghouse data with MCL violations and aggregate by PWSID. 
+
+PWSIDs are determined to have groundwater compliant with drinking water standards if they have any groundwater sources without MCL violations. In other words, they are considered noncompliant only if 100% of groundwater sources have an MCL violation.
+```{r}
+clearinghouse_excl_consecutive_connections_w_mcl_violations = left_join(clearinghouse_wo_consecutive_connections, edt_mcl, by = c("index_facility_id" = "ps_code_clean"))%>%
+  mutate(gw_access_facility = 1,
+         mcl_violation = replace_na(mcl_violation, 0))%>%
+  group_by(water_system_id)%>%
+  reframe(gw_access = max(gw_access_facility), 
+          violation_rate = mean(mcl_violation, na.rm = T),
+          gw_compliant_w_dw_standards = ifelse(violation_rate == 1, 0, 1))
+
+rm(clearinghouse_wo_consecutive_connections, edt_mcl)
+```
+
+Now join with our original list of PWSIDs and add the new dummy columns, based on:
+ - Whether or not PWS has at least 1 facility with groundwater access
+ - Whether or not PWS has at least 1 groundwater facility compliant with drinking water standards (which we define as a facility without MCL violations)
+```{r}
+network_pwsids_w_gw_variables_excl_consecutive_connections = network_w_source_id%>%
+  select(pwsid)%>%
+  unique()%>%
+  left_join(., clearinghouse_excl_consecutive_connections_w_mcl_violations, by = c("pwsid" = "water_system_id"))%>%
+  mutate(gw_access = case_when(
+    !grepl("CA", pwsid) ~ NA,
+    is.na(gw_access) ~ 0,
+    T ~ gw_access))%>%
+  select(-violation_rate)
+```
+
+
+```{r}
+network_w_gw = network_w_source_id%>%
+  left_join(., network_pwsids_w_gw_variables_excl_consecutive_connections, by = "pwsid")
+
+rm(network_w_source_id, network_pwsids_w_gw_variables_excl_consecutive_connections, clearinghouse_excl_consecutive_connections_w_mcl_violations)
+```
+
+
+# SWP/CVP
+
+Pull in manually reviewed project columns and override existing value for these cases. Otherwise, keep existing value.
+```{r}
+reviewed_swp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251014_swp_systems_w_changes.csv")
+reviewed_cvp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251015_cvp_systems_w_changes.csv")
+
+reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
+  filter(System_name != "FOLSOM, CITY OF - MAIN")%>% # Remove row that was edited by Kristin in Box spreadsheet
+  rename_with(~ paste0("reviewed_", .))%>%
+  arrange(tolower(reviewed_System_name))%>%
+  mutate(connection_id = row_number())%>%
+  rename(pwsid = 1, source_name = 3, swp = 7, cvp = 8, colorado = 9)%>%
+  select(pwsid, source_name, swp, cvp, colorado)
+
+network_w_cleaned_swp_cvp = network_w_gw%>%
+  left_join(., reviewed_all, by = c("pwsid", "source_name"))%>%
+  mutate(
+    swp = ifelse(is.na(swp), swp_og, swp),
+    cvp = ifelse(is.na(cvp), cvp_og, cvp),
+    colorado = ifelse(is.na(colorado), colorado_incompleteandnotedited, colorado))%>%
+  select(-c(swp_og:colorado_incompleteandnotedited))
+
+rm(reviewed_swp, reviewed_cvp, reviewed_all)
+```
+
+Fill in existing NA project columns (which occur when source type is another PWS) by tracing back through the PWSs to the original sources
+```{r}
+#Create the new columns
+network_w_cleaned_swp_cvp = network_w_cleaned_swp_cvp %>%
+  mutate(
+    swp_loop = replace_na(swp, 0),
+    cvp_loop = replace_na(cvp, 0),
+    colorado_loop = replace_na(colorado, 0))
+
+# Function to trace water sources
+trace_sources <- function(network) {
+  
+  # Start with systems that purchase from other PWS
+  systems_to_check <- which(network$source_type == "PWS") 
+      
+  
+  max_iterations <- 10  # Safety limit to prevent infinite loops
+  iteration <- 0
+  changed <- TRUE
+  
+  while(changed && iteration < max_iterations) {
+    changed <- FALSE
+    iteration <- iteration + 1
+    
+    for(i in systems_to_check) {
+      current_source <- network$source_id[i]
+      
+      # Find all sources for this supplier system
+      supplier_sources <- which(network$pwsid == current_source)
+      
+      if(length(supplier_sources) > 0) {
+        
+        # Check if supplier has SWP or CVP water
+        supplier_has_SWP <- any(network$swp_loop[supplier_sources] == 1)
+        supplier_has_CVP <- any(network$cvp_loop[supplier_sources] == 1)
+        supplier_has_colorado <- any(network$colorado_loop[supplier_sources] == 1)
+        
+        # Update if we found new information
+        if(supplier_has_SWP && network$swp_loop[i] == 0) {
+          network$swp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_CVP && network$cvp_loop[i] == 0) {
+          network$cvp_loop[i] <- 1
+          changed <- TRUE}
+        
+        if(supplier_has_colorado && network$colorado_loop[i] == 0) {
+          network$colorado_loop[i] <- 1
+          changed <- TRUE}
+        }}}
+  
+  return(network)}
+
+# Run the function
+network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)
+```
+
+# Export
+```{r}
+write.csv(network_w_looped_projects, "Data/Outputs/20251017_network_joined.csv", row.names = F)
+```
+
