@@ -20,9 +20,9 @@ knitr::opts_knit$set(root.dir = here())
 
 # Import data
 
-Cleaned & deduplicated network data
+Processed network data
 ```{r}
-network = read_excel("data/Source/Network data/Final data 10.27.25 latlon comp.xlsx", na = "NA")
+network = read.csv("Data/Outputs/20251120_network_joined.csv")
 ```
 
 
@@ -37,40 +37,19 @@ network = read_excel("data/Source/Network data/Final data 10.27.25 latlon comp.x
 
 ```{r}
 network_master = network%>%
-  rename(pop_served = Population_served_count, source_name = Source)%>%
-  rename_with(tolower)%>%
-  
   mutate(
-    purchased = case_when(
-      purchased == "Yes" ~ 1,
-      purchased == "No" ~ 0,
-      T ~ NA),
-    pop_served = ifelse(pop_served <= 1, NA, pop_served),
     system_size = case_when(
       is.na(pop_served) ~ NA,
       pop_served > 100000 ~ "Very Large",
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
       pop_served > 500 ~ "Small",
-      pop_served <= 500 ~ "Very Small"),
-    source_type = case_when(
-      source_name == "Kern River" ~ "River",
-      source_name == "Lake Havasu" ~ "Lake",
-      source_name == "Lake Spaulding" ~ "Lake",
-      T ~ source_type))%>%
-  
-  group_by(source_name)%>%
-  mutate(num_systems_served = n())%>%
-  ungroup()%>%
-  
-  group_by(pwsid)%>%
-  mutate(num_sw_sources = n())%>%
-  ungroup()%>%
-
-  select(-c(system_lat:system_lon, source_lat:source_lon, is_wholesaler, source_number, source_summary, combined_source_notes, combined_calsim_notes, swp:colorado_incompleteandnotedited, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access_no_cc:gw_compliant_w_dw_standards_no_cc, connection_id, source_id))%>%
-  
-  select(1:3,5,4,13,15, 6:7,14, 8:12)%>%
+      pop_served <= 500 ~ "Very Small"))%>%
+    
+  select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
   rename(swp = swp_loop, cvp = cvp_loop)
+
+rm(network)
 ```
 
 
@@ -83,18 +62,16 @@ Systems
 Keep one row per system
 ```{r}
 system_nodes = network_master%>%
-  select(system_name:num_sw_sources)%>%
+  select(system_name, pwsid, provider_type, county, state_classification, pop_served, num_sw_sources, gw_access, gw_compliant_w_dw_standards)%>%
   unique()%>%
   rename(id = pwsid)
-
-table(system_nodes$system_size)
 ```
 
 Sources
-Keep one row per source. Exclude any PWS sources since these will be in the systems dataset.
+Keep one row per source
 ```{r}
 source_nodes = network_master %>%
-  select(source_name:num_systems_served) %>%
+  select(source_name, source_type, num_systems_served)%>%
   unique()%>%
   rename(id = source_name)
 ```
@@ -104,7 +81,6 @@ Combine
 all_nodes = full_join(source_nodes, system_nodes, by = "id")%>%
   mutate(type = ifelse(is.na(system_name), "source", "system"))
 ```
-
 
 
 ## Edges
@@ -131,6 +107,6 @@ Great! Looks good to export
 
 Export igraph object as .Rdata
 ```{r}
-save(network, all_nodes, file = "data/Outputs/20251112_network_igraph.Rdata")
+save(network, all_nodes, file = "data/Outputs/20251124_network_igraph.Rdata")
 ```
 
