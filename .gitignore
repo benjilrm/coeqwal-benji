@@ -1,11 +1,10 @@
 # Data
-Data/
-*.html
+Data/**
 
 # But track the specific igraph file
 !Data/Outputs/20251124_network_igraph.Rdata
 
-
+*.html
 lib/
 
 # History files
