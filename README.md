@@ -6,6 +6,7 @@ The 'Scripts/' folder contains all relevant code. Run scripts based on numerical
 
 Scripts/ 
     
+    ├── Archive/                                     # See for previous iterations of processing broken up into smaller scripts
     ├── 1. Cleaning, processing, and joins/
     │   └── master_cleaning_and_join.Rmd             # Cleaning of network dataset, joins with other datasets, and generation of additional columns, yielding processed dataset
     ├── 2. Additional processing for ArcGIS and igraph/
