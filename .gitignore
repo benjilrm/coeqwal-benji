@@ -3,7 +3,7 @@ Data/
 *.html
 
 # But track the specific igraph file
-!Data/Outputs/20251124_network_igraph
+!Data/Outputs/20251124_network_igraph.Rdata
 
 
 lib/
