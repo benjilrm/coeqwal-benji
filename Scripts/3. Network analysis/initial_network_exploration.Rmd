@@ -23,7 +23,7 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("Data/Outputs/20251112_network_igraph.Rdata")
+load("data for upload/20251124_network_igraph.Rdata")
 ``` 
 
 ## Drought vulnerability
@@ -171,16 +171,6 @@ Kristin also mentioned [participation coefficient](https://www.google.com/url?q=
 Seems like there are options to calculate it in R [example](https://search.r-project.org/CRAN/refmans/NetworkToolbox/html/participation.html)
 
 
-```{r}
-system_metrics_comb%>%
-  filter(hhi > 10000)
-
-as_data_frame(network, what = "edges")%>%
-  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
-```
-Just flagging there are a few systems with more than the max HHI (10000) because their average source usages add up to over 100%
-
-
 ## Local density / cluster / community
 Kristin's hypothesis: on average, small systems will have less local density than large systems
 How can we test?
@@ -189,11 +179,11 @@ How can we test?
 
 Create one-mode projection on systems (systems connected if they share sources)
 ```{r, eval = F}
-system_adjacency = bipartite_projection(network)$proj2
+V(network)$type <- V(network)$type == "system"
+system_adjacency = bipartite_projection(network)$proj1
 
-# Degree in the projection = number of other systems sharing sources
-system_shared_sources_degree = degree(system_adjacency)
-system_degrees$shared_sources_degree = system_shared_sources_degree
+
+
 ```
 
 # Combine all metrics into one dataframe
@@ -214,6 +204,17 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
 table(system_metrics_comb$drought_vulnerable, useNA = "always")
 ```
 Seems like among the small systems, we have 61 NAs where we can't find that system's PWSID in the DWR vulnerability data. Bring up with Kristin. 
+
+
+```{r}
+system_metrics_comb%>%
+  filter(hhi > 10000)
+
+as_data_frame(network, what = "edges")%>%
+  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
+```
+Just flagging there are a few systems with more than the max HHI (10000) because their average source usages add up to over 100%
+
 
 
 Code could potentially be split here so that we have one script that calculates network metrics and produces this master dataframe, which would be the input into a 2nd script focused on visualisations/analysis
