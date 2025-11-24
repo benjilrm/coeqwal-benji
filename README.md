@@ -6,23 +6,13 @@ The 'Scripts/' folder contains all relevant code. Run scripts based on numerical
 
 Scripts/ 
     
-    ├── 1. Cleaning & processing/
-    │   ├── initial_cleaning_of_network_data.Rmd      # Initial cleaning and processing of network data
-    │   └── missing_source_lat_longs.Rmd              # Using SAFER Clearinghouse data to fill in lat/longs for sources with missing location data
-    ├── 2. Generating new columns/
-    │   ├── add_gw_variables_to_network_data.Rmd      # Generating variables characterising PWS groundwater access
-    │   └── split_up_project_columns.Rmd              # Generating dummy variables indicating whether connections correspond to State Water Project, Central Valley Project, and Colorado River Aqueduct
-    ├── 3. Joins/
-    │   └── joining_in_intermediate_data.Rmd          # Joining all new columns back into network data
-    ├── 4. Reviewing project columns/
-    │   ├── swp_cvp_cleaning.Rmd                      # Exporting CVP/SWP systems for manual review, and joining reviewed systems back into master dataset
-    │   └── project_column_loops.Rmd                  # Looping through sources purchased from PWSs to fill in project columns 
-    ├── 5. Source ID creation & final cleaning
-    │   └── source_id_creation.Rmd                    # Generating a unique ID for each source in final dataset
-    ├── 6. Processing for ArcGIS Dashboard & Network
-    │   ├── processing_for_network_igraph.Rmd         # Processing final master data into igraph format
-    │   └── processing_for_arcgis_dashboard .Rmd      # Processing final master data into shapefiles for upload to ArcGIS Online
-    └── 7. Network analysis
+    ├── Archive/                                     # See for previous iterations of processing broken up into smaller scripts
+    ├── 1. Cleaning, processing, and joins/
+    │   └── master_cleaning_and_join.Rmd             # Cleaning of network dataset, joins with other datasets, and generation of additional columns, yielding processed dataset
+    ├── 2. Additional processing for ArcGIS and igraph/
+    │   ├── processing_for_arcgis_dashboard.Rmd      # Processing final master data into shapefiles for upload to ArcGIS Online
+    │   └── processing_for_network_igraph.Rmd        # Processing final master data into igraph format
+    └── 3. Network analysis
         └── initial_network_exploration.Rmd           # Initial exploratory analysis and visualisations of network data in igraph
 
 # Data Sources
@@ -39,5 +29,13 @@ EDT Data
 - Drinking water quality data compiled by the State Water Resources Control Board and downloaded from [this page](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/EDTlibrary.html).
 - Data dictionary is available [here](https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/documents/edtlibrary/data_dictionary.pdf).
 - Used to identify drinking water facilities with MCL violations in add_gw_variables_to_network_data.Rmd
+
+CA SDWIS
+- Contains data on PWS's county, state classification, etc.
+- Joined into main dataset by PWSID
+
+EPA SDWIS
+- Contains data on PWS's population served, wholesale provider, status, etc.
+- Joined into main dataset by PWSID
 
 Data dictionary for new columns [here](https://docs.google.com/spreadsheets/d/11Wzbw_Jr1k-WxoZu8n-r0eJ0FcPlr-ldpthPKmB1gL0/edit?gid=0#gid=0)
