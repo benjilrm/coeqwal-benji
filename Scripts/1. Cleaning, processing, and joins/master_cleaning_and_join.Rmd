@@ -321,7 +321,8 @@ rm(reviewed_swp, reviewed_cvp, reviewed_all)
 network_w_cleaned_swp_cvp
 ```
 
-Fill in existing NA project columns (which occur when source type is another PWS) by tracing back through the PWSs to the original sources
+Fill in existing NA project columns (which occur when source type is another PWS) by tracing back through the PWSs to the original sources. 
+That way, we can create a new column indicating direct SWP/CVP/Colorado access vs indirect access through purchased connections.
 ```{r}
 #Create the new columns
 network_w_cleaned_swp_cvp = network_w_cleaned_swp_cvp %>%
