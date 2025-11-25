@@ -23,7 +23,7 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("data for upload/20251124_network_igraph.Rdata")
+load("data for upload/20251125_network_igraph.Rdata")
 ``` 
 
 ## Drought vulnerability
@@ -44,15 +44,17 @@ pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability
   rename(pwsid = PWSID)%>%
   select(pwsid)%>%
   filter(pwsid != "")%>%
-  mutate(drought_vulnerable = 1)
+  mutate(drought_vulnerable = 1, pacific_drought_vulnerable = 1)
 ```
 
 Now we can combine the two. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
 ```{r}
-comb_vulnerability = rbind(dwr_vulnerability, pacific_vulnerability)%>%
+comb_vulnerability = bind_rows(dwr_vulnerability, pacific_vulnerability)%>%
   group_by(pwsid)%>%
-  reframe(drought_vulnerable = max(drought_vulnerable))%>%
-  ungroup()
+  reframe(drought_vulnerable = max(drought_vulnerable),
+          pacific_drought_vulnerable = max(pacific_drought_vulnerable))%>%
+  ungroup()%>%
+  mutate(across(everything(), ~ replace_na(., 0)))
 ```
 
 

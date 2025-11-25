@@ -61,7 +61,7 @@ network_clean = network%>%
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
     cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
 
-  select(-c(is_wholesale, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp:colorado, colorado_loop, connection_id, source_id, state_classification))%>%
+  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp:colorado, colorado_loop, connection_id, source_id, state_classification))%>%
   
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
 ```

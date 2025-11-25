@@ -22,7 +22,7 @@ knitr::opts_knit$set(root.dir = here())
 
 Processed network data
 ```{r}
-network = read.csv("Data/Outputs/20251120_network_joined.csv")
+network = read.csv("Data/Outputs/20251125_network_joined.csv")
 ```
 
 
@@ -107,6 +107,6 @@ Great! Looks good to export
 
 Export igraph object as .Rdata
 ```{r}
-save(network, all_nodes, file = "data/Outputs/20251124_network_igraph.Rdata")
+save(network, all_nodes, file = "data for upload/20251125_network_igraph.Rdata")
 ```
 
