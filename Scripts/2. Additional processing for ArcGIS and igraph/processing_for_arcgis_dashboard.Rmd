@@ -29,7 +29,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20251017_network_joined.csv")
+network = read.csv("Data/Outputs/20251125_network_joined.csv")
 ```
 
 
@@ -197,15 +197,12 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251120_connections.shp", delete_dsn = T)
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251120_connections.gpkg", delete_dsn = T)
-#st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251030_connections.geojson", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.shp", delete_dsn = T)
+#st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251120_systems.shp", delete_dsn = T)
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251120_systems.gpkg", delete_dsn = T)
-#st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251030_systems.geojson", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.shp", delete_dsn = T)
+#st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.gpkg", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251120_sources.shp", delete_dsn = T)
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251120_sources.gpkg", delete_dsn = T)
-#st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251030_sources.geojson", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.shp", delete_dsn = T)
+#st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.gpkg", delete_dsn = T)
 ```
