@@ -183,7 +183,19 @@ network_clean = network%>%
     
     purchased = ifelse(purchased == "Yes", 1, 0),
     
-    connection_id = row_number())%>%
+    connection_id = row_number(),
+    
+    
+    average_source_usage = case_when(
+      pwsid == "CA1910200" & source_name == "CA1910128" ~ 83.33,
+      pwsid == "CA1910200" & source_name == "CA1910234" ~ 16.66,
+      pwsid == "CA1910127" ~ 50,
+      pwsid == "CA5601117" & source_name == "Senior Canyon Tunnel" ~ 83.33,
+      pwsid == "CA5601117" & source_name == "CA5610024" ~ 16.66,
+      pwsid == "CA0910001" & average_source_usage == 33.33 ~ 25,
+      pwsid == "CA4410014" & source_type != "PWS" ~ 21.97,
+      T ~ average_source_usage),
+    average_source_method = ifelse(pwsid %in% c("CA1910200", "CA1910127", "CA5601117"), "Imputed", average_source_method))%>%
     
     group_by(source_name)%>%
     mutate(num_systems_served = n())%>%
@@ -305,6 +317,8 @@ network_w_cleaned_swp_cvp = network_w_gw%>%
   select(-c(swp_og:colorado_incompleteandnotedited))
 
 rm(reviewed_swp, reviewed_cvp, reviewed_all)
+
+network_w_cleaned_swp_cvp
 ```
 
 Fill in existing NA project columns (which occur when source type is another PWS) by tracing back through the PWSs to the original sources
@@ -361,11 +375,31 @@ trace_sources <- function(network) {
   return(network)}
 
 # Run the function
-network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)
+network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
+  mutate(
+    swp_text = case_when(
+      swp == 1 ~ "Direct",
+      (swp == 0 | is.na(swp)) & swp_loop == 1 ~ "Indirect",
+      (swp == 0 | is.na(swp)) & swp_loop != 1 ~ "No"),
+    cvp_text = case_when(
+      cvp == 1 ~ "Direct",
+      (cvp == 0 | is.na(cvp)) & cvp_loop == 1 ~ "Indirect",
+      (cvp == 0 | is.na(cvp)) & cvp_loop != 1 ~ "No"),
+    colorado_text = case_when(
+      colorado == 1 ~ "Direct",
+      (colorado == 0 | is.na(colorado)) & colorado_loop == 1 ~ "Indirect",
+      (colorado == 0 | is.na(colorado)) & colorado_loop != 1 ~ "No"))%>%
+  select(
+        system_name, pwsid, county, provider_type, is_wholesale, state_classification, pop_served, gw_access, gw_compliant_w_dw_standards,
+          num_sw_sources, system_lat, system_lon,
+        source_name, source_id,source_type, num_systems_served, source_lat, source_lon, source_summary, combined_source_notes,
+        connection_id, purchased:average_source_method, swp:colorado_text,
+        summer_2025_cleaning:calsim_notes_sept2025)%>%
+  rename(is_wholesaler = is_wholesale)
 ```
 
 # Export
 ```{r}
-write.csv(network_w_looped_projects, "Data/Outputs/20251017_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20251125_network_joined.csv", row.names = F)
 ```
 
