@@ -10,6 +10,7 @@ suppressPackageStartupMessages({
   library(here)        # File management
   library(igraph)      # Network analysis
   library(GGally)      # Exploratory scatter plots
+  library(psych)       # Summary stats
   })})
 ```
 
@@ -24,6 +25,17 @@ knitr::opts_knit$set(root.dir = here())
 Our cleaned and processed network data generated into an igraph object
 ```{r}
 load("data for upload/20251125_network_igraph.Rdata")
+
+network_df = read.csv("Data/Outputs/20251125_network_joined.csv")
+
+all_nodes = all_nodes%>%
+  mutate(system_size = case_when(
+      is.na(pop_served) ~ NA,
+      pop_served > 100000 ~ "Very Large",
+      pop_served > 10000 ~ "Large",
+      pop_served > 3300 ~ "Medium",
+      pop_served > 500 ~ "Small",
+      pop_served <= 500 ~ "Very Small"))
 ``` 
 
 ## Drought vulnerability
@@ -50,16 +62,21 @@ pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability
 Now we can combine the two. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
 ```{r}
 comb_vulnerability = bind_rows(dwr_vulnerability, pacific_vulnerability)%>%
+  #filter(pwsid == "CA5610068")%>%
   group_by(pwsid)%>%
-  reframe(drought_vulnerable = max(drought_vulnerable),
-          pacific_drought_vulnerable = max(pacific_drought_vulnerable))%>%
-  ungroup()%>%
-  mutate(across(everything(), ~ replace_na(., 0)))
+  reframe(
+    drought_vulnerable = max(drought_vulnerable, na.rm = T),
+    pacific_drought_vulnerable = max(pacific_drought_vulnerable, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(across(c(drought_vulnerable, pacific_drought_vulnerable), 
+                ~ ifelse(is.infinite(.), NA, .)))
+
+rm(dwr_vulnerability, pacific_vulnerability)
 ```
 
 
 
-# Analysis / Calculating Metrics
+# Calculating Metrics
 
 ## Centrality
 
@@ -105,22 +122,15 @@ systems = V(network)[type == "system"]
 path_length_matrix = distances(network, v = sources, to = systems, mode = "out")
 #path_lengths = as.vector(path_length_matrix[is.finite(as.vector(path_length_matrix))])
 
-
 # Get shortest paths between all systems (for reachable systems calculation)
 system_to_system_matrix = distances(network, v = systems, to = systems, mode = "out")
 ```
 
 Summary stats for sources' path lengths
 ```{r}
-data.frame(
+source_path_lengths = data.frame(
   source_name = sources$name,
-  source_type = V(network)[sources]$source_type,
-  mean_path_length = apply(path_length_matrix, 1, function(x) mean(x[is.finite(x)])),
-  median_path_length = apply(path_length_matrix, 1, function(x) median(x[is.finite(x)])),
-  max_path_length = apply(path_length_matrix, 1, function(x) max(x[is.finite(x)])),
-  min_path_length = apply(path_length_matrix, 1, function(x) min(x[is.finite(x)])),
-  n_reachable_systems = apply(path_length_matrix, 1, function(x) sum(is.finite(x))))%>%
-  arrange(-mean_path_length)
+  n_reachable_systems = apply(path_length_matrix, 1, function(x) sum(is.finite(x))))
 ```
 
 Summary stats for systems' path lengths
@@ -137,7 +147,7 @@ system_path_lengths = data.frame(
   n_reachable_systems = apply(system_to_system_matrix, 1, function(x) sum(is.finite(x)) - 1)) %>%  # Subtract 1 to exclude self
   arrange(-max_path_length)
 
-rm(path_length_matrix)
+rm(path_length_matrix, system_to_system_matrix)
 ```
 
 ## Source diversity
@@ -183,9 +193,6 @@ Create one-mode projection on systems (systems connected if they share sources)
 ```{r, eval = F}
 V(network)$type <- V(network)$type == "system"
 system_adjacency = bipartite_projection(network)$proj1
-
-
-
 ```
 
 # Combine all metrics into one dataframe
@@ -196,185 +203,61 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
   left_join(., diversity_df, by = "pwsid")%>%
   left_join(., all_nodes%>%
               filter(type == "system")%>%
-              select(id, system_name:num_sw_sources)%>%
+              select(id, system_name:num_sw_sources, system_size)%>%
               rename(pwsid = id), 
             by = "pwsid")%>%
-  left_join(., comb_vulnerability, by = "pwsid")
+  left_join(., comb_vulnerability, by = "pwsid")%>%
+  mutate(across(where(is.numeric), ~ replace_na(., 0)))
   
-#rm(diversity_df, system_centrality, system_path_lengths, dwr_vulnerability)
+rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
 
 table(system_metrics_comb$drought_vulnerable, useNA = "always")
 ```
 Seems like among the small systems, we have 61 NAs where we can't find that system's PWSID in the DWR vulnerability data. Bring up with Kristin. 
 
-
+Join all source network metrics as well
 ```{r}
-system_metrics_comb%>%
-  filter(hhi > 10000)
-
-as_data_frame(network, what = "edges")%>%
-  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
+source_metrics_comb = left_join(source_centrality, source_path_lengths, by = "source_name")
+  
+rm(source_centrality, source_path_lengths)
 ```
-Just flagging there are a few systems with more than the max HHI (10000) because their average source usages add up to over 100%
-
 
 
 Code could potentially be split here so that we have one script that calculates network metrics and produces this master dataframe, which would be the input into a 2nd script focused on visualisations/analysis
 
-# Visualisations / Tables
-
-## Centrality
-
-### Systems
-System in-degree centrality
-Possible metric for systems' source redunancy (# of sources)
-```{r}
-system_metrics_comb%>%
-  group_by(system_size)%>%
-  reframe(in_degree = mean(in_degree, na.rm = T))%>%
-  #filter(!is.na(system_size))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean In-Degree Centrality")+
-  theme(legend.position = "none")
-
-system_metrics_comb%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
-  geom_violin()+
-  theme_bw()+
-  labs(x = "System Size", y = "In-Degree Centrality")+
-  theme(legend.position = "none")
-```
-
-Out, total, betweenness centrality for systems
-(more of a metric for measuring importance of redistribution hubs)
-```{r}
-ggplot(system_metrics_comb, aes(total_degree))+
-  geom_histogram(fill = "coral2", colour = "black")+
-  theme_bw()
-
-system_metrics_comb%>%
-  group_by(system_size)%>%
-  reframe(total_degree = mean(total_degree, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = total_degree, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Total Degree Centrality")+
-  theme(legend.position = "none")+
-  scale_y_log10()
-
-system_metrics_comb%>%
-  group_by(system_size)%>%
-  reframe(betweenness = mean(betweenness, na.rm = T))%>%
-  #filter(!is.na(system_size))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = betweenness, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean Betweenness Centrality")+
-  theme(legend.position = "none")
-
-system_metrics_comb%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = betweenness, fill = system_size))+
-  geom_violin()+
-  theme_bw()+
-  labs(x = "System Size", y = "Betweenness Centrality")+
-  theme(legend.position = "none")+
-  scale_y_log10()
-```
-
-### Sources
-```{r}
-ggplot(source_centrality, aes(out_degree))+
-  geom_histogram(fill = "coral2", colour = "black")+
-  theme_bw()
-```
-
-
-## Source diversity
-Systems' source diversity 
-HHI index as possible metric for source diversity
+# Descriptives of network dataset
 
 ```{r}
-system_metrics_comb%>%
-  group_by(system_size)%>%
-  reframe(hhi = mean(hhi, na.rm = T))%>%
-  #filter(!is.na(system_size))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean HHI")+
-  theme(legend.position = "none")
+cat("Number of vertices:", vcount(network), "\n")
+cat("Number of edges:", ecount(network), "\n")
+cat("Network density:", round(edge_density(network), 4), "\n")
 
-system_metrics_comb%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
-  geom_violin()+
-  theme_bw()+
-  labs(x = "System Size", y = "HHI")+
-  theme(legend.position = "none")
+# Vertex counts by type
+cat("Number of systems:", sum(V(network)$type == "system"), "\n")
+cat("Number of sources:", sum(V(network)$type == "source"), "\n")
+
+# Basic centrality measures
+cat("Average degree:", round(mean(degree(network)), 2), "\n")
+cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
+cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
 ```
 
-## Path length
-Systems' path length to nearest source
-Possible metric for source diversity
-```{r}
-system_metrics_comb%>%
-  group_by(system_size)%>%
-  reframe(mean_path_length = mean(mean_path_length, na.rm = T))%>%
-  #filter(!is.na(system_size))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean Path Length")+
-  theme(legend.position = "none")
+# System metrics
 
-system_metrics_comb%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
-  geom_violin()+
-  theme_bw()+
-  labs(x = "System Size", y = "Path Length")+
-  theme(legend.position = "none")
-```
-
-# Summary stats
-
+## Summary stats
 System network metrics
 Filter for very small/small/medium systems
 ```{r}
 system_metrics_comb%>%
   filter(pop_served <= 10000)%>%
   select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
-  #summary()%>%
   describe(quant = c(0.25, 0.75)) %>%
   as.data.frame()%>%
   rownames_to_column("variable")%>%
   select(-c(vars, sd, trimmed, mad, range:se))
-  select(variable, mean, sd, min, max, range, Q0.25, median, Q0.75, IQR = Q0.75 - Q0.25)
-
-library(psych)
-
-summary_table <- system_metrics_comb %>%
-  filter(pop_served <= 10000) %>%
-  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems) %>%
-  describe(quant = c(0.25, 0.75)) %>%
-  as.data.frame() %>%
-  rownames_to_column("variable") %>%
-  select(variable, mean, sd, min, max, range, Q0.25, median, Q0.75, IQR = Q0.75 - Q0.25)
-
-# View the table
-print(summary_table)
 ```
 
-Plots
+Plots to visualise experience
 ```{r}
 system_metrics_comb%>%filter(pop_served <= 10000)%>%
   select(in_degree:total_degree, betweenness)%>%
@@ -401,42 +284,71 @@ system_metrics_comb%>%filter(pop_served <= 10000)%>%
   theme_bw()
 ```
 
-# Relationship between metrics
-
 Let's make some quick scatter plots just to see the relationships between some of the system-level metrics we calculated
 ```{r}
-system_metrics_comb%>%
-  filter(hhi > 10000)
-
-as_data_frame(network, what = "edges")%>%
-  filter(to %in% c("CA1910200", "CA1910127", "CA5601117"))
-
-
 ggpairs(system_metrics_comb[c(2:3, 5:6, 12)])+
   labs(title = "Scatterplot Matrix") +
   theme_bw()
 ```
 
-# Worst-performing systems
 
-Let's pull the worst-performing systems across various metrics
+## Differences by self-supplied
+
+First, we generate a binary variable for self-supplied or not. We consider a system to be self-supplied if it purchases <50% of the water volume it receives.
 ```{r}
-#Systems with least source diversity
-system_metrics_comb%>%
-  arrange(-hhi)%>%
-  head(10)
+self_supplied = network_df%>%
+  filter(purchased == 1)%>%
+  group_by(pwsid)%>%
+  reframe(percent_purchased = sum(average_source_usage))%>%
+  ungroup()%>%
+  mutate(self_supplied = ifelse(percent_purchased < 50, 1, 0))%>%
+  select(-percent_purchased)
 
-#Systems with longest average path length
-system_metrics_comb%>%
-  arrange(-mean_path_length)%>%
-  head(10)
+system_metrics_comb = system_metrics_comb%>%
+  left_join(., self_supplied, by = "pwsid")%>%
+  mutate(self_supplied = ifelse(is.na(self_supplied), 0, self_supplied))
 
-# Systems with just 1 source
-system_metrics_comb%>%
-  filter(in_degree == 1)
+table(system_metrics_comb$self_supplied)
+
+rm(self_supplied)
 ```
 
-# Validation with Drought Vulnerability Data
+Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
+```{r}
+system_metrics_comb%>%
+  ggplot(aes(as.factor(self_supplied), hhi))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Self-Supplied", y = "HHI")
+system_metrics_comb%>%
+  ggplot(aes(as.factor(self_supplied), in_degree))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Self-Supplied", y = "In-Degree Centrality")
+system_metrics_comb%>%
+  ggplot(aes(as.factor(self_supplied), mean_path_length))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Self-Supplied", y = "Mean Path Length to Source")
+```
+
+```{r}
+wilcox.test(hhi ~ self_supplied, data = system_metrics_comb)
+aggregate(hhi ~ self_supplied, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(in_degree ~ self_supplied, data = system_metrics_comb)
+aggregate(in_degree ~ self_supplied, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ self_supplied, data = system_metrics_comb)
+aggregate(mean_path_length ~ self_supplied, data = system_metrics_comb, FUN = mean)
+```
+These tests all come out significant: self-supplied systems tend to have lower HHI (ie: greater source diversity), higher in-degree centrality (ie: more sources), and greater path length (ie: further removed from their original sources). 
+
+
+
+
+
+## Differences by drought impacted
 
 Plots comparing distributions of vulnerability metrics by DWR drought vulnerability assessment
 ```{r}
@@ -460,54 +372,206 @@ system_metrics_comb%>%
   labs(x = "DWR Drought Vulnerability", y = "Mean Path Length to Source")
 ```
 
+
 Quick statistical test to see if distribution is different by group
 Using mann-whitney test since data is non-parametric
 ```{r}
-summary_stats = system_metrics_comb%>%
-  filter(!is.na(drought_vulnerable))%>%
-  group_by(drought_vulnerable)%>%
-  reframe(in_degree = mean(in_degree),
-          mean_path_length = mean(mean_path_length),
-          hhi = mean(hhi))%>%
-  mutate(drought_vulnerable = ifelse(drought_vulnerable == 0, "no_drought_vulnerability_mean", "drought_vulnerability_mean"))
-summary_stats = summary_stats%>%
-  t()%>%
-  data.frame()%>%
-  setNames(summary_stats[[1]]) %>% 
-  slice(-1)%>%
-  rownames_to_column("metric")
+wilcox.test(hhi ~ drought_vulnerable, data = system_metrics_comb)
+aggregate(hhi ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
 
-mann_whitney_results <- system_metrics_comb %>%
-  summarise(
-    in_degree_test = list(wilcox.test(in_degree ~ drought_vulnerable)),
-    hhi_test = list(wilcox.test(hhi ~ drought_vulnerable)),
-    mean_path_length_test = list(wilcox.test(mean_path_length ~ drought_vulnerable)))
+wilcox.test(in_degree ~ drought_vulnerable, data = system_metrics_comb)
+aggregate(in_degree ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
 
-tibble(
-  metric = c("in_degree", "hhi", "mean_path_length"),
-  test_statistic = c(
-    mann_whitney_results$in_degree_test[[1]]$statistic,
-    mann_whitney_results$hhi_test[[1]]$statistic,
-    mann_whitney_results$mean_path_length_test[[1]]$statistic),
-  p_value = c(
-    mann_whitney_results$in_degree_test[[1]]$p.value,
-    mann_whitney_results$hhi_test[[1]]$p.value,
-    mann_whitney_results$mean_path_length_test[[1]]$p.value)) %>%
-  mutate(
-    significance = case_when(
-      p_value < 0.001 ~ "***",
-      p_value < 0.01 ~ "**",
-      p_value < 0.05 ~ "*",
-      TRUE ~ "ns"),
-    p_value_formatted = format.pval(p_value, digits = 3))%>%
-  select(-p_value)%>%
-  left_join(., summary_stats, by = "metric")
-
-rm(mann_whitney_results, summary_stats)
+wilcox.test(mean_path_length ~ drought_vulnerable, data = system_metrics_comb)
+aggregate(mean_path_length ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
 ```
-Tests indicate that small systems designated as drought-vulnerable tend to have greater in-degree (ie: more sources) and shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI is not significant. 
+
+Tests indicate that small systems designated as drought-vulnerable tend to have shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI and # of sources are not significant. 
+
+## Differences by size
+
+System in-degree centrality
+Possible metric for systems' source redundancy (# of sources)
+```{r}
+system_metrics_comb%>%
+  filter(!is.na(system_size))%>%
+  group_by(system_size)%>%
+  reframe(in_degree = mean(in_degree, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Mean In-Degree Centrality")+
+  theme(legend.position = "none")
+
+system_metrics_comb%>%
+  filter(!is.na(system_size))%>%
+  group_by(system_size)%>%
+  reframe(hhi = mean(hhi, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Mean HHI")+
+  theme(legend.position = "none")
+
+system_metrics_comb%>%
+  filter(!is.na(system_size))%>%
+  group_by(system_size)%>%
+  reframe(mean_path_length = mean(mean_path_length, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Mean Path Length")+
+  theme(legend.position = "none")
+```
+
+```{r}
+summary(lm(hhi ~ pop_served, data = system_metrics_comb))
+summary(lm(in_degree ~ pop_served, data = system_metrics_comb))
+summary(lm(mean_path_length ~ pop_served, data = system_metrics_comb))
+```
+
+We generally see that as we go from very small to very large systems, in-degree centrality and mean path length increase, and HHI decreases, indicating that larger systems have more sources, greater source diversity, and are more removed from their original source. 
+Based on a simple regression, these trends are statistically significant for HHI and in-degree.
 
 
+# Source metrics
+
+## Summary stats
+```{r}
+source_metrics_comb%>%
+  select(out_degree, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+## Differences by serving small vs large systems
+
+First, let's determine the primary system size each source serves. We use the median population served to determine if large systems or small systems are the primary recipients. 
+
+```{r}
+system_size_served = network_df%>%
+  group_by(source_name)%>%
+  reframe(median_pop_served = median(pop_served, na.rm = T))%>%
+  mutate(primary_system_size_served = ifelse(median_pop_served <= 10000, "Small", "Large"))
+
+source_metrics_comb = source_metrics_comb%>%
+  left_join(., system_size_served, by = "source_name")
+
+table(source_metrics_comb$primary_system_size_served)
+
+rm(system_size_served)
+```
+Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
+```{r}
+source_metrics_comb%>%
+  filter(!is.na(primary_system_size_served))%>%
+  ggplot(aes(as.factor(primary_system_size_served), out_degree))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Primary System Size Served", y = "Mean Out-Degree Centrality")
+source_metrics_comb%>%
+  filter(!is.na(primary_system_size_served))%>%
+  ggplot(aes(as.factor(primary_system_size_served), n_reachable_systems))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Primary System Size Served", y = "Mean Number of Reachable Systems")
+```
+
+```{r}
+wilcox.test(out_degree ~ primary_system_size_served, data = source_metrics_comb)
+aggregate(out_degree ~ primary_system_size_served, data = source_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_systems ~ primary_system_size_served, data = source_metrics_comb)
+aggregate(n_reachable_systems ~ primary_system_size_served, data = source_metrics_comb, FUN = mean)
+```
+Sources that primarily serve larger systems tend to have greater out-degree and number of reachable systems (ie: directly supply more systems and also indirectly reach more systems through the network)
 
 
+## Differences by serving drought-impacted vs non-drought-impacted systems
 
+First, we determine whether each source serves any drought-impacted system or not
+```{r}
+serve_drought_systems = network_df%>%
+  left_join(., system_metrics_comb%>%select(pwsid, drought_vulnerable), by = "pwsid")%>%
+  group_by(source_name)%>%
+  reframe(drought_system_served = max(drought_vulnerable))
+serve_drought_systems
+
+source_metrics_comb = source_metrics_comb%>%
+  left_join(., serve_drought_systems, by = "source_name")
+
+table(source_metrics_comb$drought_system_served)
+
+rm(serve_drought_systems)
+```
+
+Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
+```{r}
+source_metrics_comb%>%
+  ggplot(aes(as.factor(drought_system_served), out_degree))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Serves Drought-Impacted Systems", y = "Mean Out-Degree Centrality")
+source_metrics_comb%>%
+  ggplot(aes(as.factor(drought_system_served), n_reachable_systems))+
+  geom_violin(fill = "coral1")+
+  theme_bw()+
+  labs(x = "Serves Drought-Impacted Systems", y = "Mean Number of Reachable Systems")
+```
+
+```{r}
+wilcox.test(out_degree ~ drought_system_served, data = source_metrics_comb)
+aggregate(out_degree ~ drought_system_served, data = source_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_systems ~ drought_system_served, data = source_metrics_comb)
+aggregate(n_reachable_systems ~ drought_system_served, data = source_metrics_comb, FUN = mean)
+```
+Sources that serve a drought-impacted system tend to have greater number of reachable systems (ie: indirectly reach more systems through the network). Out-degree does not differ significantly by whether or not a source serves any drought-impacted systems.
+
+# Community detection/clustering
+
+```{r}
+monopartite = graph_from_data_frame(network_df%>%rename(from = source_name, to = pwsid), directed = F)
+
+louvain_comm <- cluster_louvain(monopartite)
+membership_louvain <- membership(louvain_comm)
+#modularity_louvain <- modularity(louvain_comm)
+
+# Get basic statistics
+num_communities <- length(unique(membership_louvain))
+community_sizes <- sizes(louvain_comm)
+
+# Create summary dataframe
+data.frame(
+  Community = 1:num_communities,
+  size = as.numeric(community_sizes),
+  stringsAsFactors = FALSE)
+```
+Hm, just creating 859 communities of size 2--not ideal. Perhaps this sort of community detection algorithm isn't the best option since our network is so sparse.
+
+Either scrap or maybe instead do clustering based on types of roles within the network?
+
+
+# Archive
+
+Let's pull the worst-performing systems across various metrics
+```{r}
+#Systems with least source diversity
+system_metrics_comb%>%
+  arrange(-hhi)%>%
+  head(10)
+
+#Systems with longest average path length
+system_metrics_comb%>%
+  arrange(-mean_path_length)%>%
+  head(10)
+
+# Systems with just 1 source
+system_metrics_comb%>%
+  filter(in_degree == 1)
+```
