@@ -29,7 +29,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20251125_network_joined.csv")
+network = read.csv("Data/Outputs/20251203_network_joined.csv")
 ```
 
 
@@ -64,6 +64,8 @@ network_clean = network%>%
   select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp:colorado, colorado_loop, connection_id, source_id, state_classification))%>%
   
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
+
+rm(network)
 ```
 
 
@@ -79,8 +81,16 @@ network_w_lat_longs = network_clean%>%
   ungroup()%>%
   
   mutate(
-    source_lat = ifelse(source_name == "Lake Havasu", 34.29384, source_lat),
-    source_lon = ifelse(source_name == "Lake Havasu", -114.1686, source_lon))
+    source_lat = case_when(
+      source_name == "Lake Havasu" ~ 34.29384,
+      source_name == "California Aqueduct" ~ 34.619,
+      T ~ source_lat),
+    source_lon = case_when(
+      source_name == "Lake Havasu" ~ -114.1686,
+      source_name == "California Aqueduct" ~ -120.213,
+      T ~ source_lon))
+
+rm(network_clean)
 ```
 
 Double check to make sure we just have 1 lat/long for each system regardless of whether it's receiving or transferring water
@@ -132,14 +142,17 @@ Convert to sf point object.
 ```{r}
 sources_sf = network_w_lat_longs%>%
   select(source_name, source_type, num_systems_served, source_lat, source_lon) %>%
-  filter(!is.na(source_lat) & source_type != "PWS") %>%
+  filter(!is.na(source_lat) & !source_type %in% c("PWS", "Non-PWS wholesaler")) %>%
   unique()%>%
-  st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)
+  st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)%>%
+  mutate(source_type_consolidated = ifelse(source_type == "Other supplier", "Other Suppliers", "Natural Sources"))
 
 jittered_sources = sources_sf%>%
   st_transform(ca_crs)%>%
   st_jitter(., amount = 1600)%>%
   st_transform(wgs_crs)
+
+rm(sources_sf)
 ```
 
 ```{r, eval = F}
@@ -176,6 +189,8 @@ connections_sf = network_w_lat_longs %>%
         nrow = 2, 
         byrow = TRUE)))) %>%
   st_as_sf(crs = wgs_crs)
+
+rm(network_w_lat_longs)
 ```
 
 
@@ -197,12 +212,12 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251203_connections.shp", delete_dsn = T)
 #st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251203_systems.shp", delete_dsn = T)
 #st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.gpkg", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251203_sources.shp", delete_dsn = T)
 #st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.gpkg", delete_dsn = T)
 ```

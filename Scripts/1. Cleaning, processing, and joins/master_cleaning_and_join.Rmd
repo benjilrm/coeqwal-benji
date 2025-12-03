@@ -171,6 +171,9 @@ network_clean = network%>%
     source_name == "Mill Creek" & pwsid == "CA1200553" ~ "Weott CSD, Mill Creek",
       
     source_name == "Mill Creek Spring" ~ "Foresthill Public Utility Dist, Mill Creek",
+    
+    source_name == "San Antonio Creek" & pwsid == "CA1910126" ~ "San Antonio Creek, Pomona",
+    source_name == "San Antonio Creek" & county == "Calaveras" ~ "San Antonio Creek, Calaveras County",
     T ~ source_name),
     source_name = ifelse(str_detect(source_name, "^CA[0-9]"), source_name, str_to_title(source_name)),
     
@@ -184,7 +187,6 @@ network_clean = network%>%
     purchased = ifelse(purchased == "Yes", 1, 0),
     
     connection_id = row_number(),
-    
     
     average_source_usage = case_when(
       pwsid == "CA1910200" & source_name == "CA1910128" ~ 83.33,
@@ -238,7 +240,7 @@ source_ids = network_w_lat_longs%>%
   group_by(source_name)%>%
   mutate(group_id = paste("source", cur_group_id(), sep = "_")) %>%
   ungroup()%>%
-  mutate(source_id = ifelse(source_type == "PWS", source_name, group_id)) %>%
+  mutate(source_id = ifelse(source_type %in% c("PWS", "Non-PWS wholesaler"), source_name, group_id)) %>%
   select(source_name, source_id)%>%
   unique()
 ```
@@ -317,11 +319,9 @@ network_w_cleaned_swp_cvp = network_w_gw%>%
   select(-c(swp_og:colorado_incompleteandnotedited))
 
 rm(reviewed_swp, reviewed_cvp, reviewed_all)
-
-network_w_cleaned_swp_cvp
 ```
 
-Fill in existing NA project columns (which occur when source type is another PWS) by tracing back through the PWSs to the original sources. 
+Fill in existing NA project columns (which occur when water is purchased) by tracing back through the PWSs to the original sources. 
 That way, we can create a new column indicating direct SWP/CVP/Colorado access vs indirect access through purchased connections.
 ```{r}
 #Create the new columns
@@ -334,8 +334,8 @@ network_w_cleaned_swp_cvp = network_w_cleaned_swp_cvp %>%
 # Function to trace water sources
 trace_sources <- function(network) {
   
-  # Start with systems that purchase from other PWS
-  systems_to_check <- which(network$source_type == "PWS") 
+  # Start with purchased connections
+  systems_to_check <- which(network$purchased == 1) 
       
   
   max_iterations <- 10  # Safety limit to prevent infinite loops
@@ -401,6 +401,6 @@ network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
 
 # Export
 ```{r}
-write.csv(network_w_looped_projects, "Data/Outputs/20251125_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20251203_network_joined.csv", row.names = F)
 ```
 
