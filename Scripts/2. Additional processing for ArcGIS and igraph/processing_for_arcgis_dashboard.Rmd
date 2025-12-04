@@ -66,6 +66,10 @@ network_clean = network%>%
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
 
 rm(network)
+
+network_clean%>%filter(source_name == "California Aqueduct" & pwsid == "CA4210030")
+tm_shape(network_clean%>%filter(source_name == "California Aqueduct")%>%st_as_sf(., coords = c("source_lon", "source_lat"), crs = wgs_crs))+
+  tm_dots()
 ```
 
 
@@ -83,14 +87,15 @@ network_w_lat_longs = network_clean%>%
   mutate(
     source_lat = case_when(
       source_name == "Lake Havasu" ~ 34.29384,
-      source_name == "California Aqueduct" ~ 34.619,
+      source_name == "California Aqueduct" ~ 35.712,
       T ~ source_lat),
     source_lon = case_when(
       source_name == "Lake Havasu" ~ -114.1686,
-      source_name == "California Aqueduct" ~ -120.213,
+      source_name == "California Aqueduct" ~ -120.0103,
       T ~ source_lon))
 
 rm(network_clean)
+
 ```
 
 Double check to make sure we just have 1 lat/long for each system regardless of whether it's receiving or transferring water
