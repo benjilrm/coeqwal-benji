@@ -66,10 +66,6 @@ network_clean = network%>%
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
 
 rm(network)
-
-network_clean%>%filter(source_name == "California Aqueduct" & pwsid == "CA4210030")
-tm_shape(network_clean%>%filter(source_name == "California Aqueduct")%>%st_as_sf(., coords = c("source_lon", "source_lat"), crs = wgs_crs))+
-  tm_dots()
 ```
 
 
