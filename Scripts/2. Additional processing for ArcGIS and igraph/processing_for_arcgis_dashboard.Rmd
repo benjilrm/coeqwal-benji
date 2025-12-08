@@ -150,7 +150,7 @@ sources_sf = network_w_lat_longs%>%
 
 jittered_sources = sources_sf%>%
   st_transform(ca_crs)%>%
-  st_jitter(., amount = 1600)%>%
+  st_jitter(., amount = 800)%>%
   st_transform(wgs_crs)
 
 rm(sources_sf)
