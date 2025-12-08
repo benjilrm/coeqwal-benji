@@ -20,7 +20,7 @@ knitr::opts_knit$set(root.dir = here())
 
 ## Network data
 ```{r}
-network_raw = read.csv("Data/Source/Network data/Nov182025_finaldata_originalonly.csv")%>%
+network_raw = read_excel("Data/Source/Network data/Final data for joins and adding additional columns Dec 4 2025.xlsx", na = "NA")%>%
   rename(pwsid = system_ID)
 ```
 
@@ -311,12 +311,13 @@ reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
   select(pwsid, source_name, swp, cvp, colorado)
 
 network_w_cleaned_swp_cvp = network_w_gw%>%
+  rename(swp_og = swp, cvp_og = cvp, colorado_og = colorado)%>%
   left_join(., reviewed_all, by = c("pwsid", "source_name"))%>%
   mutate(
     swp = ifelse(is.na(swp), swp_og, swp),
     cvp = ifelse(is.na(cvp), cvp_og, cvp),
-    colorado = ifelse(is.na(colorado), colorado_incompleteandnotedited, colorado))%>%
-  select(-c(swp_og:colorado_incompleteandnotedited))
+    colorado = ifelse(is.na(colorado), colorado_og, colorado))%>%
+  select(-c(swp_og:colorado_og))
 
 rm(reviewed_swp, reviewed_cvp, reviewed_all)
 ```
@@ -401,6 +402,6 @@ network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
 
 # Export
 ```{r}
-write.csv(network_w_looped_projects, "Data/Outputs/20251203_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20251208_network_joined.csv", row.names = F)
 ```
 
