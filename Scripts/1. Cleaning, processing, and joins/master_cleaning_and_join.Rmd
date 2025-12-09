@@ -20,7 +20,7 @@ knitr::opts_knit$set(root.dir = here())
 
 ## Network data
 ```{r}
-network_raw = read_excel("Data/Source/Network data/Final data for joins and adding additional columns Dec 4 2025.xlsx", na = "NA")%>%
+network_raw = read_excel("Data/Source/Network data/Final data for joins and adding additional columns Dec 4 2025 WITH DEC 8 CHANGES.xlsx", na = "NA")%>%
   rename(pwsid = system_ID)
 ```
 
@@ -148,6 +148,19 @@ network = network_raw%>%
 rm(network_raw, ca_sdwis, epa_sdwis)
 ```
 
+Validation
+```{r, eval = F}
+table(network$is_wholesale, useNA = "always")
+summary(network$pop_served, useNA = "always")
+table(network$state_classification, useNA = "always")
+
+network%>%
+  select(system_name, pwsid, is_wholesale, pop_served, state_classification)%>%
+  filter(is.na(is_wholesale) | is.na(pop_served) | is.na(state_classification))%>%
+  unique()%>%
+  arrange(pwsid)
+```
+
 
 # Cleaning
 
@@ -184,7 +197,7 @@ network_clean = network%>%
     
     source_type = ifelse(source_name == "Solano Irrigation District", "Other supplier", source_type),
     
-    purchased = ifelse(purchased == "Yes", 1, 0),
+    #purchased = ifelse(purchased == "Yes", 1, 0),
     
     connection_id = row_number(),
     
@@ -307,17 +320,17 @@ reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
   rename_with(~ paste0("reviewed_", .))%>%
   arrange(tolower(reviewed_System_name))%>%
   mutate(connection_id = row_number())%>%
-  rename(pwsid = 1, source_name = 3, swp = 7, cvp = 8, colorado = 9)%>%
-  select(pwsid, source_name, swp, cvp, colorado)
+  rename(pwsid = 1, source_name = 3, swp_reviewed = 7, cvp_reviewed = 8, colorado_reviewed = 9)%>%
+  select(pwsid, source_name, swp_reviewed, cvp_reviewed, colorado_reviewed)
 
 network_w_cleaned_swp_cvp = network_w_gw%>%
   rename(swp_og = swp, cvp_og = cvp, colorado_og = colorado)%>%
   left_join(., reviewed_all, by = c("pwsid", "source_name"))%>%
   mutate(
-    swp = ifelse(is.na(swp), swp_og, swp),
-    cvp = ifelse(is.na(cvp), cvp_og, cvp),
-    colorado = ifelse(is.na(colorado), colorado_og, colorado))%>%
-  select(-c(swp_og:colorado_og))
+    swp_direct = ifelse(is.na(swp_reviewed), swp_og, swp_reviewed),
+    cvp_direct = ifelse(is.na(cvp_reviewed), cvp_og, cvp_reviewed),
+    colorado_direct = ifelse(is.na(colorado_reviewed), colorado_og, colorado_reviewed))%>%
+  select(-c(swp_og:colorado_og, swp_reviewed:colorado_reviewed))
 
 rm(reviewed_swp, reviewed_cvp, reviewed_all)
 ```
@@ -328,9 +341,9 @@ That way, we can create a new column indicating direct SWP/CVP/Colorado access v
 #Create the new columns
 network_w_cleaned_swp_cvp = network_w_cleaned_swp_cvp %>%
   mutate(
-    swp_loop = replace_na(swp, 0),
-    cvp_loop = replace_na(cvp, 0),
-    colorado_loop = replace_na(colorado, 0))
+    swp_loop = replace_na(swp_direct, 0),
+    cvp_loop = replace_na(cvp_direct, 0),
+    colorado_loop = replace_na(colorado_direct, 0))
 
 # Function to trace water sources
 trace_sources <- function(network) {
@@ -380,28 +393,28 @@ trace_sources <- function(network) {
 network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
   mutate(
     swp_text = case_when(
-      swp == 1 ~ "Direct",
-      (swp == 0 | is.na(swp)) & swp_loop == 1 ~ "Indirect",
-      (swp == 0 | is.na(swp)) & swp_loop != 1 ~ "No"),
+      swp_direct == 1 ~ "Direct",
+      (swp_direct == 0 | is.na(swp_direct)) & swp_loop == 1 ~ "Indirect",
+      (swp_direct == 0 | is.na(swp_direct)) & swp_loop != 1 ~ "No"),
     cvp_text = case_when(
-      cvp == 1 ~ "Direct",
-      (cvp == 0 | is.na(cvp)) & cvp_loop == 1 ~ "Indirect",
-      (cvp == 0 | is.na(cvp)) & cvp_loop != 1 ~ "No"),
+      cvp_direct == 1 ~ "Direct",
+      (cvp_direct == 0 | is.na(cvp_direct)) & cvp_loop == 1 ~ "Indirect",
+      (cvp_direct == 0 | is.na(cvp_direct)) & cvp_loop != 1 ~ "No"),
     colorado_text = case_when(
-      colorado == 1 ~ "Direct",
-      (colorado == 0 | is.na(colorado)) & colorado_loop == 1 ~ "Indirect",
-      (colorado == 0 | is.na(colorado)) & colorado_loop != 1 ~ "No"))%>%
+      colorado_direct == 1 ~ "Direct",
+      (colorado_direct == 0 | is.na(colorado_direct)) & colorado_loop == 1 ~ "Indirect",
+      (colorado_direct == 0 | is.na(colorado_direct)) & colorado_loop != 1 ~ "No"))%>%
   select(
         system_name, pwsid, county, provider_type, is_wholesale, state_classification, pop_served, gw_access, gw_compliant_w_dw_standards,
           num_sw_sources, system_lat, system_lon,
         source_name, source_id,source_type, num_systems_served, source_lat, source_lon, source_summary, combined_source_notes,
-        connection_id, purchased:average_source_method, swp:colorado_text,
+        connection_id, purchased:average_source_method, swp_direct:colorado_text,
         summer_2025_cleaning:calsim_notes_sept2025)%>%
   rename(is_wholesaler = is_wholesale)
 ```
 
 # Export
 ```{r}
-write.csv(network_w_looped_projects, "Data/Outputs/20251208_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20251209_network_joined.csv", row.names = F)
 ```
 
