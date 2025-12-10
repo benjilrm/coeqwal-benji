@@ -29,7 +29,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20251203_network_joined.csv")
+network = read.csv("Data/Outputs/20251210_network_joined.csv")
 ```
 
 
@@ -61,7 +61,7 @@ network_clean = network%>%
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
     cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
 
-  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp:colorado, colorado_loop, connection_id, source_id, state_classification))%>%
+  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp_direct:colorado_direct, colorado_text, connection_id, source_id, state_classification))%>%
   
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
 
@@ -84,14 +84,23 @@ network_w_lat_longs = network_clean%>%
     source_lat = case_when(
       source_name == "Lake Havasu" ~ 34.29384,
       source_name == "California Aqueduct" ~ 35.712,
+      source_name == "Kern River" ~ 35.75573,
+      source_name == "Lake Shastina" ~ 41.51761924281496,
+      source_name == "Lake Spaulding" ~ 39.33604519822352,
+      source_name == "Lyons Reservoir" ~ 38.098002039789485,
+      source_name == "Friant-Kern Canal" ~ 36.62401,
       T ~ source_lat),
     source_lon = case_when(
       source_name == "Lake Havasu" ~ -114.1686,
       source_name == "California Aqueduct" ~ -120.0103,
+      source_name == "Kern River" ~ -118.4228,
+      source_name == "Lake Shastina" ~ -122.39281380480435,
+      source_name == "Lake Spaulding" ~ -120.63027515989987,
+      source_name == "Lyons Reservoir" ~ -120.16573438405824,
+      source_name == "Friant-Kern Canal" ~ -119.3066,
       T ~ source_lon))
 
 rm(network_clean)
-
 ```
 
 Double check to make sure we just have 1 lat/long for each system regardless of whether it's receiving or transferring water
@@ -213,12 +222,12 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251203_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251210_connections.shp", delete_dsn = T)
 #st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251203_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251210_systems.shp", delete_dsn = T)
 #st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.gpkg", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251203_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251210_sources.shp", delete_dsn = T)
 #st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.gpkg", delete_dsn = T)
 ```
