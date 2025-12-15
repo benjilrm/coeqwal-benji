@@ -201,7 +201,7 @@ network_clean = network%>%
     
     connection_id = row_number(),
     
-    across(where(is.character), ~ str_replace_all(.x, "\\bOf\\b", "of"))
+    across(where(is.character), ~ str_replace_all(.x, "\\bOf\\b", "of")),
     
     average_source_usage = case_when(
       pwsid == "CA1910200" & source_name == "CA1910128" ~ 83.33,
