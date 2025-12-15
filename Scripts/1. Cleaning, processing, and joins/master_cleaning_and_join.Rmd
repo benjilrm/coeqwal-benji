@@ -29,10 +29,6 @@ network_raw = read_excel("Data/Source/Network data/Final data for joins and addi
 master_system_lat_longs = read_excel("Data/Source/Network data/20251030_unified system latlons.xlsx")%>%
   rename_with(tolower)%>%
   rename(override_lat = latitude, override_lon = longitude)
-
-network_raw%>%
-  filter(pwsid == "CA1510022" | source_name == "CA1510022")%>%
-  select(system_name, pwsid, source_name, source_type, system_lat:system_lon, source_lat:source_lon)
 ```
 
 ## CA SDWIS
@@ -204,6 +200,8 @@ network_clean = network%>%
     #purchased = ifelse(purchased == "Yes", 1, 0),
     
     connection_id = row_number(),
+    
+    across(where(is.character), ~ str_replace_all(.x, "\\bOf\\b", "of"))
     
     average_source_usage = case_when(
       pwsid == "CA1910200" & source_name == "CA1910128" ~ 83.33,
@@ -420,6 +418,6 @@ network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
 
 # Export
 ```{r}
-write.csv(network_w_looped_projects, "Data/Outputs/20251210_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20251215_network_joined.csv", row.names = F)
 ```
 

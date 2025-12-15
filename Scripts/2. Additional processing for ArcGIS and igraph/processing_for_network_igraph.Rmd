@@ -44,8 +44,7 @@ network_master = network%>%
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
       pop_served > 500 ~ "Small",
-      pop_served <= 500 ~ "Very Small"),
-    across(where(is.character), ~ str_replace_all(.x, "\\bOf\\b", "of")))%>%
+      pop_served <= 500 ~ "Very Small"))%>%
     
   select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
   rename(swp = swp_loop, cvp = cvp_loop)
