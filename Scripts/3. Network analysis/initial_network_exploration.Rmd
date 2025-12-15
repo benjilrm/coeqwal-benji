@@ -24,9 +24,9 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("data for upload/20251125_network_igraph.Rdata")
+load("data for upload/20251215_network_igraph.Rdata")
 
-network_df = read.csv("Data/Outputs/20251125_network_joined.csv")
+network_df = read.csv("Data/Outputs/20251215_network_joined.csv")
 
 all_nodes = all_nodes%>%
   mutate(system_size = case_when(
@@ -73,8 +73,6 @@ comb_vulnerability = bind_rows(dwr_vulnerability, pacific_vulnerability)%>%
 
 rm(dwr_vulnerability, pacific_vulnerability)
 ```
-
-
 
 # Calculating Metrics
 
@@ -242,6 +240,21 @@ cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
 cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
 ```
 
+
+```{r}
+table(all_nodes$source_type)
+
+table(all_nodes$gw_access)
+table(all_nodes$gw_compliant_w_dw_standards)
+table(all_nodes$provider_type)
+table(all_nodes$system_size)
+
+
+table(network_df$purchased)
+table(network_df$swp_text)
+table(network_df$cvp_text)
+```
+
 # System metrics
 
 ## Summary stats
@@ -297,18 +310,19 @@ ggpairs(system_metrics_comb[c(2:3, 5:6, 12)])+
 First, we generate a binary variable for self-supplied or not. We consider a system to be self-supplied if it purchases <50% of the water volume it receives.
 ```{r}
 self_supplied = network_df%>%
-  filter(purchased == 1)%>%
-  group_by(pwsid)%>%
-  reframe(percent_purchased = sum(average_source_usage))%>%
-  ungroup()%>%
-  mutate(self_supplied = ifelse(percent_purchased < 50, 1, 0))%>%
-  select(-percent_purchased)
+  filter(purchased == 0)%>%
+  group_by(pwsid, purchased)%>%
+  reframe(percent_not_purchased = sum(average_source_usage))%>%
+  mutate(self_supplied = ifelse(percent_not_purchased >= 50, 1, 0),
+         fully_self_supplied = ifelse(percent_not_purchased == 100, 1, 0))%>%
+  select(-percent_not_purchased)
 
 system_metrics_comb = system_metrics_comb%>%
   left_join(., self_supplied, by = "pwsid")%>%
-  mutate(self_supplied = ifelse(is.na(self_supplied), 0, self_supplied))
+  replace_na(list(self_supplied = 0, fully_self_supplied = 0))
 
 table(system_metrics_comb$self_supplied)
+table(system_metrics_comb$fully_self_supplied)
 
 rm(self_supplied)
 ```
@@ -341,14 +355,34 @@ aggregate(in_degree ~ self_supplied, data = system_metrics_comb, FUN = mean)
 
 wilcox.test(mean_path_length ~ self_supplied, data = system_metrics_comb)
 aggregate(mean_path_length ~ self_supplied, data = system_metrics_comb, FUN = mean)
-```
-These tests all come out significant: self-supplied systems tend to have lower HHI (ie: greater source diversity), higher in-degree centrality (ie: more sources), and greater path length (ie: further removed from their original sources). 
 
+wilcox.test(n_reachable_sources ~ self_supplied, data = system_metrics_comb)
+aggregate(n_reachable_sources ~ self_supplied, data = system_metrics_comb, FUN = mean)
+
+
+wilcox.test(hhi ~ fully_self_supplied, data = system_metrics_comb)
+aggregate(hhi ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(in_degree ~ fully_self_supplied, data = system_metrics_comb)
+aggregate(in_degree ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ fully_self_supplied, data = system_metrics_comb)
+aggregate(mean_path_length ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ fully_self_supplied, data = system_metrics_comb)
+aggregate(n_reachable_sources ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+```
 
 
 
 
 ## Differences by drought impacted
+
+```{r}
+table(system_metrics_comb$drought_vulnerable)
+table(system_metrics_comb$pacific_drought_vulnerable)
+```
+
 
 Plots comparing distributions of vulnerability metrics by DWR drought vulnerability assessment
 ```{r}
@@ -384,6 +418,19 @@ aggregate(in_degree ~ drought_vulnerable, data = system_metrics_comb, FUN = mean
 
 wilcox.test(mean_path_length ~ drought_vulnerable, data = system_metrics_comb)
 aggregate(mean_path_length ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ drought_vulnerable, data = system_metrics_comb)
+aggregate(n_reachable_sources ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+
+
+wilcox.test(hhi ~ pacific_drought_vulnerable, data = system_metrics_comb)
+aggregate(hhi ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(in_degree ~ pacific_drought_vulnerable, data = system_metrics_comb)
+aggregate(in_degree ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ pacific_drought_vulnerable, data = system_metrics_comb)
+aggregate(mean_path_length ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
 ```
 
 Tests indicate that small systems designated as drought-vulnerable tend to have shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI and # of sources are not significant. 
@@ -424,6 +471,17 @@ system_metrics_comb%>%
   geom_bar(stat = "identity")+
   theme_bw()+
   labs(x = "System Size", y = "Mean Path Length")+
+  theme(legend.position = "none")
+
+system_metrics_comb%>%
+  filter(!is.na(system_size))%>%
+  group_by(system_size)%>%
+  reframe(n_reachable_sources = mean(n_reachable_sources, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = n_reachable_sources, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "# of Reachable Sources")+
   theme(legend.position = "none")
 ```
 
