@@ -22,7 +22,7 @@ knitr::opts_knit$set(root.dir = here())
 
 Processed network data
 ```{r}
-network = read.csv("Data/Outputs/20251125_network_joined.csv")
+network = read.csv("Data/Outputs/20251210_network_joined.csv")
 ```
 
 
@@ -44,7 +44,8 @@ network_master = network%>%
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
       pop_served > 500 ~ "Small",
-      pop_served <= 500 ~ "Very Small"))%>%
+      pop_served <= 500 ~ "Very Small"),
+    across(where(is.character), ~ str_replace_all(.x, "\\bOf\\b", "of")))%>%
     
   select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
   rename(swp = swp_loop, cvp = cvp_loop)
@@ -107,6 +108,6 @@ Great! Looks good to export
 
 Export igraph object as .Rdata
 ```{r}
-save(network, all_nodes, file = "data for upload/20251125_network_igraph.Rdata")
+save(network, all_nodes, file = "data for upload/20251215_network_igraph.Rdata")
 ```
 
