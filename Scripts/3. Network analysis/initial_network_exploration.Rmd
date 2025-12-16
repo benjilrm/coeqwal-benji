@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
   library(igraph)      # Network analysis
   library(GGally)      # Exploratory scatter plots
   library(psych)       # Summary stats
+  library(factoextra)  # K-means
   })})
 ```
 
@@ -314,16 +315,15 @@ ggpairs(system_metrics_comb[c(2:3, 5:6, 12)])+
 First, we generate a binary variable for self-supplied or not. We consider a system to be self-supplied if it purchases <50% of the water volume it receives.
 ```{r}
 self_supplied = network_df%>%
-  filter(purchased == 0)%>%
+  filter(purchased == 1)%>%
   group_by(pwsid, purchased)%>%
-  reframe(percent_not_purchased = sum(average_source_usage))%>%
-  mutate(self_supplied = ifelse(percent_not_purchased >= 50, 1, 0),
-         fully_self_supplied = ifelse(percent_not_purchased == 100, 1, 0))%>%
-  select(-percent_not_purchased)
+  reframe(percent_purchased = sum(average_source_usage))%>%
+  mutate(self_supplied = ifelse(percent_purchased < 50, 1, 0),
+         fully_self_supplied = ifelse(percent_purchased == 0, 1, 0))
 
 system_metrics_comb = system_metrics_comb%>%
   left_join(., self_supplied, by = "pwsid")%>%
-  replace_na(list(self_supplied = 0, fully_self_supplied = 0))
+  replace_na(list(self_supplied = 1, fully_self_supplied = 1, percent_purchased = 0))
 
 table(system_metrics_comb$self_supplied)
 table(system_metrics_comb$fully_self_supplied)
@@ -618,42 +618,72 @@ Sources that serve a drought-impacted system tend to have greater number of reac
 # Community detection/clustering
 
 ```{r}
-monopartite = graph_from_data_frame(network_df%>%rename(from = source_name, to = pwsid), directed = F)
+network_sparse = network_df%>%
+  select(pwsid, source_name)
 
-louvain_comm <- cluster_louvain(monopartite)
-membership_louvain <- membership(louvain_comm)
-#modularity_louvain <- modularity(louvain_comm)
+network_sparse_w_sources = network_sparse%>%
+  inner_join(., source_metrics_comb%>%select(source_name, out_degree, n_reachable_systems), by = "source_name")
+network_sparse_w_systems = network_sparse%>%
+  inner_join(., system_metrics_comb%>%select(pwsid, out_degree, n_reachable_systems), by = c("source_name" = "pwsid"))
 
-# Get basic statistics
-num_communities <- length(unique(membership_louvain))
-community_sizes <- sizes(louvain_comm)
+source_stats_aggregated = rbind(network_sparse_w_sources, network_sparse_w_systems)%>%
+  group_by(pwsid)%>%
+  reframe(mean_source_out_degree = mean(out_degree),
+          mean_source_n_reachable_systems = mean(n_reachable_systems))
 
-# Create summary dataframe
-data.frame(
-  Community = 1:num_communities,
-  size = as.numeric(community_sizes),
-  stringsAsFactors = FALSE)
+system_metrics_comb = system_metrics_comb%>%
+  select(-c(system_name:pop_served, purchased, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length))%>%
+  left_join(., source_stats_aggregated, by = "pwsid")
+
+system_metrics_comb
+
+rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_stats_aggregated)
 ```
-Hm, just creating 859 communities of size 2--not ideal. Perhaps this sort of community detection algorithm isn't the best option since our network is so sparse.
-
-Either scrap or maybe instead do clustering based on types of roles within the network?
 
 
-# Archive
-
-Let's pull the worst-performing systems across various metrics
 ```{r}
-#Systems with least source diversity
-system_metrics_comb%>%
-  arrange(-hhi)%>%
-  head(10)
+# Select features for clustering
+features <- system_metrics_comb %>%
+  select(-c(pwsid, system_size, self_supplied, fully_self_supplied, hhi, num_sw_sources))
 
-#Systems with longest average path length
-system_metrics_comb%>%
-  arrange(-mean_path_length)%>%
-  head(10)
-
-# Systems with just 1 source
-system_metrics_comb%>%
-  filter(in_degree == 1)
+# Determine optimal number of clusters (optional)
+fviz_nbclust(features, kmeans, method = "wss") + 
+  labs(subtitle = "Elbow Method")
 ```
+
+
+```{r}
+# Perform k-means clustering
+set.seed(123)
+k <- 3  # Based on your typology idea
+kmeans_result <- kmeans(features, centers = k, nstart = 25)
+
+# Add cluster assignments
+system_metrics_comb$role_cluster <- kmeans_result$cluster
+
+# Examine cluster centers to label them
+cluster_centers <- as.data.frame(kmeans_result$centers)
+rownames(cluster_centers) <- paste("Cluster", 1:k)
+cluster_centers$size <- table(kmeans_result$cluster)
+
+cluster_centers
+```
+Seems to break into 3 clusters:
+1) Few # of sources, hardly transfers out water, very close to og sources (low mean path length) since they barely purchase any. Sources they get water from aren't as heavily used. More likely to be drought-vulnerable
+
+2) Few # of sources, hardly transfers out water. Purchases a lot more water (mean is 83%), so a bit further removed from their sources (higher mean path length and # of reachable sources than cluster 1).
+
+3) Transfer out a lot of water (mean out-degree almost 4 and betweenness high). Purchase a decent amount of water and seem to sell a lot of it on.
+
+
+
+```{r}
+isolated_systems = system_metrics_comb%>%
+  filter(in_degree == 1 & mean_source_out_degree == 1 & out_degree == 0 & mean_path_length == 1)
+
+
+network_df%>%
+  filter(pwsid %in% isolated_systems$pwsid)%>%
+  arrange(pwsid)
+```
+
