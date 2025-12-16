@@ -227,12 +227,13 @@ Code could potentially be split here so that we have one script that calculates 
 
 ```{r}
 cat("Number of vertices:", vcount(network), "\n")
-cat("Number of edges:", ecount(network), "\n")
-cat("Network density:", round(edge_density(network), 4), "\n")
-
-# Vertex counts by type
 cat("Number of systems:", sum(V(network)$type == "system"), "\n")
 cat("Number of sources:", sum(V(network)$type == "source"), "\n")
+
+cat("Number of edges:", ecount(network), "\n")
+cat("Network density:", round(edge_density(network, loops = FALSE), 4), "\n")
+cat("Transitivity:", round(transitivity(network, type = "global"), 4), "\n")
+
 
 # Basic centrality measures
 cat("Average degree:", round(mean(degree(network)), 2), "\n")
@@ -251,8 +252,11 @@ table(all_nodes$system_size)
 
 
 table(network_df$purchased)
+nrow(network_df%>%filter(swp_loop == 1 | cvp_loop == 1))
 table(network_df$swp_text)
 table(network_df$cvp_text)
+
+nrow(network_df%>%filter(!source_type %in% c("PWS", "Non-PWS wholesaler")))
 ```
 
 # System metrics
@@ -437,8 +441,6 @@ Tests indicate that small systems designated as drought-vulnerable tend to have 
 
 ## Differences by size
 
-System in-degree centrality
-Possible metric for systems' source redundancy (# of sources)
 ```{r}
 system_metrics_comb%>%
   filter(!is.na(system_size))%>%
@@ -483,7 +485,28 @@ system_metrics_comb%>%
   theme_bw()+
   labs(x = "System Size", y = "# of Reachable Sources")+
   theme(legend.position = "none")
+
+
+system_metrics_comb%>%
+  filter(!is.na(system_size))%>%
+  group_by(system_size)%>%
+  reframe(drought_vulnerable = mean(drought_vulnerable, na.rm = T))%>%
+  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
+  ggplot(aes(x = system_size, y = drought_vulnerable, fill = system_size))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  labs(x = "System Size", y = "Proportion of Drought-Vulnerable Systems")+
+  theme(legend.position = "none")
 ```
+```{r}
+ggplot(system_metrics_comb, aes(pop_served, hhi)) +
+  geom_point()+
+  #geom_density_2d_filled() +
+  #geom_hex(bins = 40) +scale_fill_viridis_c() +
+  theme_minimal()+
+  scale_x_log10()
+```
+
 
 ```{r}
 summary(lm(hhi ~ pop_served, data = system_metrics_comb))
@@ -523,6 +546,8 @@ source_metrics_comb = source_metrics_comb%>%
 table(source_metrics_comb$primary_system_size_served)
 
 rm(system_size_served)
+
+
 ```
 Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
 ```{r}
@@ -557,8 +582,7 @@ First, we determine whether each source serves any drought-impacted system or no
 serve_drought_systems = network_df%>%
   left_join(., system_metrics_comb%>%select(pwsid, drought_vulnerable), by = "pwsid")%>%
   group_by(source_name)%>%
-  reframe(drought_system_served = max(drought_vulnerable))
-serve_drought_systems
+  reframe(drought_system_served = ifelse(mean(drought_vulnerable)>= 0.5, 1, 0))
 
 source_metrics_comb = source_metrics_comb%>%
   left_join(., serve_drought_systems, by = "source_name")
