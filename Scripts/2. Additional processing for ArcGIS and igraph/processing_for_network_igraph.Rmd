@@ -38,15 +38,17 @@ network = read.csv("Data/Outputs/20251215_network_joined.csv")
 ```{r}
 network_master = network%>%
   mutate(
+    pop_served = na_if(pop_served, 0),
     system_size = case_when(
       is.na(pop_served) ~ NA,
       pop_served > 100000 ~ "Very Large",
       pop_served > 10000 ~ "Large",
       pop_served > 3300 ~ "Medium",
       pop_served > 500 ~ "Small",
-      pop_served <= 500 ~ "Very Small"))%>%
+      pop_served <= 500 ~ "Very Small"),
+    system_size_agg = ifelse(pop_served <= 10000, "Small", "Large"))%>%
     
-  select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
+  select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, system_size, system_size_agg, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
   rename(swp = swp_loop, cvp = cvp_loop)
 
 rm(network)
@@ -62,7 +64,7 @@ Systems
 Keep one row per system
 ```{r}
 system_nodes = network_master%>%
-  select(system_name, pwsid, provider_type, county, state_classification, pop_served, num_sw_sources, gw_access, gw_compliant_w_dw_standards)%>%
+  select(system_name, pwsid, provider_type, county, state_classification, pop_served, system_size, system_size_agg,  num_sw_sources, gw_access, gw_compliant_w_dw_standards)%>%
   unique()%>%
   rename(id = pwsid)
 ```
@@ -107,6 +109,6 @@ Great! Looks good to export
 
 Export igraph object as .Rdata
 ```{r}
-save(network, all_nodes, file = "data for upload/20251215_network_igraph.Rdata")
+save(network, all_nodes, file = "data for upload/20251218_network_igraph.Rdata")
 ```
 

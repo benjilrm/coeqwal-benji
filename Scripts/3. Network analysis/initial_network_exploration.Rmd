@@ -25,18 +25,9 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("data for upload/20251215_network_igraph.Rdata")
+load("data for upload/20251218_network_igraph.Rdata")
 
 network_df = read.csv("Data/Outputs/20251215_network_joined.csv")
-
-all_nodes = all_nodes%>%
-  mutate(system_size = case_when(
-      is.na(pop_served) ~ NA,
-      pop_served > 100000 ~ "Very Large",
-      pop_served > 10000 ~ "Large",
-      pop_served > 3300 ~ "Medium",
-      pop_served > 500 ~ "Small",
-      pop_served <= 500 ~ "Very Small"))
 ``` 
 
 ## Drought vulnerability
@@ -202,17 +193,14 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
   left_join(., diversity_df, by = "pwsid")%>%
   left_join(., all_nodes%>%
               filter(type == "system")%>%
-              select(id, system_name:num_sw_sources, system_size)%>%
+              select(id, system_name:num_sw_sources, system_size, pop_served)%>%
               rename(pwsid = id), 
             by = "pwsid")%>%
   left_join(., comb_vulnerability, by = "pwsid")%>%
-  mutate(across(where(is.numeric), ~ replace_na(., 0)))
+  mutate(across(c(drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))
   
 rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
-
-table(system_metrics_comb$drought_vulnerable, useNA = "always")
 ```
-Seems like among the small systems, we have 61 NAs where we can't find that system's PWSID in the DWR vulnerability data. Bring up with Kristin. 
 
 Join all source network metrics as well
 ```{r}
@@ -249,7 +237,7 @@ table(all_nodes$source_type)
 table(all_nodes$gw_access)
 table(all_nodes$gw_compliant_w_dw_standards)
 table(all_nodes$provider_type)
-table(all_nodes$system_size)
+table(all_nodes%>%filter(type == "system")%>%pull(system_size), useNA = "always")
 
 
 table(network_df$purchased)
@@ -268,6 +256,21 @@ Filter for very small/small/medium systems
 ```{r}
 system_metrics_comb%>%
   filter(pop_served <= 10000)%>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+system_metrics_comb%>%
+  filter(pop_served > 10000)%>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+system_metrics_comb%>%
   select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
   describe(quant = c(0.25, 0.75)) %>%
   as.data.frame()%>%
@@ -325,11 +328,29 @@ system_metrics_comb = system_metrics_comb%>%
   left_join(., self_supplied, by = "pwsid")%>%
   replace_na(list(self_supplied = 1, fully_self_supplied = 1, percent_purchased = 0))
 
-table(system_metrics_comb$self_supplied)
-table(system_metrics_comb$fully_self_supplied)
-
 rm(self_supplied)
 ```
+
+
+```{r}
+system_metrics_comb %>%
+  filter(!is.na(system_size_agg)) %>%
+  group_by(system_size_agg) %>%
+  summarize(
+    n = n(),
+    self_supplied = mean(self_supplied) * 100,
+    fully_self_supplied = mean(fully_self_supplied) * 100,
+    drought_vulnerable = mean(drought_vulnerable) * 100) %>%
+  mutate(across(-c(system_size_agg, n), ~ round(., 1)))
+
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$self_supplied)
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$fully_self_supplied)
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$drought_vulnerable)
+
+small_system_metrics_comb = system_metrics_comb%>%
+  filter(system_size_agg == "Small")
+```
+
 
 Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
 ```{r}
@@ -351,41 +372,38 @@ system_metrics_comb%>%
 ```
 
 ```{r}
-wilcox.test(hhi ~ self_supplied, data = system_metrics_comb)
-aggregate(hhi ~ self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(hhi ~ self_supplied, data = small_system_metrics_comb)
+aggregate(hhi ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(in_degree ~ self_supplied, data = system_metrics_comb)
-aggregate(in_degree ~ self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(in_degree ~ self_supplied, data = small_system_metrics_comb)
+aggregate(in_degree ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(mean_path_length ~ self_supplied, data = system_metrics_comb)
-aggregate(mean_path_length ~ self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(mean_path_length ~ self_supplied, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(n_reachable_sources ~ self_supplied, data = system_metrics_comb)
-aggregate(n_reachable_sources ~ self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(n_reachable_sources ~ self_supplied, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+```
 
 
-wilcox.test(hhi ~ fully_self_supplied, data = system_metrics_comb)
-aggregate(hhi ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+```{r}
+wilcox.test(hhi ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(hhi ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(in_degree ~ fully_self_supplied, data = system_metrics_comb)
-aggregate(in_degree ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(in_degree ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(in_degree ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(mean_path_length ~ fully_self_supplied, data = system_metrics_comb)
-aggregate(mean_path_length ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(mean_path_length ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(n_reachable_sources ~ fully_self_supplied, data = system_metrics_comb)
-aggregate(n_reachable_sources ~ fully_self_supplied, data = system_metrics_comb, FUN = mean)
+wilcox.test(n_reachable_sources ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
 ```
 
 
 
 
 ## Differences by drought impacted
-
-```{r}
-table(system_metrics_comb$drought_vulnerable)
-table(system_metrics_comb$pacific_drought_vulnerable)
-```
 
 
 Plots comparing distributions of vulnerability metrics by DWR drought vulnerability assessment
@@ -414,27 +432,27 @@ system_metrics_comb%>%
 Quick statistical test to see if distribution is different by group
 Using mann-whitney test since data is non-parametric
 ```{r}
-wilcox.test(hhi ~ drought_vulnerable, data = system_metrics_comb)
-aggregate(hhi ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(hhi ~ drought_vulnerable, data = small_system_metrics_comb)
+aggregate(hhi ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(in_degree ~ drought_vulnerable, data = system_metrics_comb)
-aggregate(in_degree ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(in_degree ~ drought_vulnerable, data = small_system_metrics_comb)
+aggregate(in_degree ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(mean_path_length ~ drought_vulnerable, data = system_metrics_comb)
-aggregate(mean_path_length ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(mean_path_length ~ drought_vulnerable, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(n_reachable_sources ~ drought_vulnerable, data = system_metrics_comb)
-aggregate(n_reachable_sources ~ drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(n_reachable_sources ~ drought_vulnerable, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
 
-wilcox.test(hhi ~ pacific_drought_vulnerable, data = system_metrics_comb)
-aggregate(hhi ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(hhi ~ pacific_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(hhi ~ pacific_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(in_degree ~ pacific_drought_vulnerable, data = system_metrics_comb)
-aggregate(in_degree ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(in_degree ~ pacific_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(in_degree ~ pacific_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(mean_path_length ~ pacific_drought_vulnerable, data = system_metrics_comb)
-aggregate(mean_path_length ~ pacific_drought_vulnerable, data = system_metrics_comb, FUN = mean)
+wilcox.test(mean_path_length ~ pacific_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ pacific_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 ```
 
 Tests indicate that small systems designated as drought-vulnerable tend to have shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI and # of sources are not significant. 
@@ -512,6 +530,7 @@ ggplot(system_metrics_comb, aes(pop_served, hhi)) +
 summary(lm(hhi ~ pop_served, data = system_metrics_comb))
 summary(lm(in_degree ~ pop_served, data = system_metrics_comb))
 summary(lm(mean_path_length ~ pop_served, data = system_metrics_comb))
+summary(lm(n_reachable_sources ~ pop_served, data = system_metrics_comb))
 ```
 
 We generally see that as we go from very small to very large systems, in-degree centrality and mean path length increase, and HHI decreases, indicating that larger systems have more sources, greater source diversity, and are more removed from their original source. 
@@ -632,7 +651,6 @@ source_stats_aggregated = rbind(network_sparse_w_sources, network_sparse_w_syste
           mean_source_n_reachable_systems = mean(n_reachable_systems))
 
 system_metrics_comb = system_metrics_comb%>%
-  select(-c(system_name:pop_served, purchased, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length))%>%
   left_join(., source_stats_aggregated, by = "pwsid")
 
 system_metrics_comb
@@ -644,7 +662,7 @@ rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_st
 ```{r}
 # Select features for clustering
 features <- system_metrics_comb %>%
-  select(-c(pwsid, system_size, self_supplied, fully_self_supplied, hhi, num_sw_sources))
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, hhi, num_sw_sources, system_name:state_classification, purchased, drought_vulnerable, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length))
 
 # Determine optimal number of clusters (optional)
 fviz_nbclust(features, kmeans, method = "wss") + 
@@ -659,14 +677,37 @@ k <- 3  # Based on your typology idea
 kmeans_result <- kmeans(features, centers = k, nstart = 25)
 
 # Add cluster assignments
-system_metrics_comb$role_cluster <- kmeans_result$cluster
+system_metrics_comb$cluster <- kmeans_result$cluster
 
 # Examine cluster centers to label them
 cluster_centers <- as.data.frame(kmeans_result$centers)
-rownames(cluster_centers) <- paste("Cluster", 1:k)
+#rownames(cluster_centers) <- paste("Cluster", 1:k)
+cluster_centers$cluster = 1:k
 cluster_centers$size <- table(kmeans_result$cluster)
+```
 
-cluster_centers
+
+```{r}
+cluster_summary = cluster_centers%>%
+  left_join(., system_metrics_comb%>%
+              group_by(cluster)%>%
+              reframe(mean_pop_served = mean(pop_served, na.rm = T),
+                      mean_drought = mean(drought_vulnerable, na.rm = T),
+                      pop_served_na = mean(ifelse(is.na(pop_served), 1, 0))),
+            by = "cluster")
+
+# Create a focused summary with key variables
+library(kableExtra)
+key_summary <- cluster_summary %>%
+  select(cluster, in_degree:mean_source_n_reachable_systems, size:pop_served_na)%>%
+  mutate(across(where(is.numeric), round, 2)) %>%
+  kbl(col.names = c("Cluster", "In-Degree", "Out-Degree", "Betweenness", 
+                    "Mean Path Length", "# Reachable Sources", "# Reachable Systems", "% Volume Purchased", "Mean Source Out-Degree", "Mean Source # of Reachable Systems", "Size", "Pop. Served", "Drought Vul.", "Systems with No Pop. Served")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+  
+key_summary
+
+writeLines(key_summary, "Manuscript outputs/cluster_table.png")
 ```
 Seems to break into 3 clusters:
 1) Few # of sources, hardly transfers out water, very close to og sources (low mean path length) since they barely purchase any. Sources they get water from aren't as heavily used. More likely to be drought-vulnerable
