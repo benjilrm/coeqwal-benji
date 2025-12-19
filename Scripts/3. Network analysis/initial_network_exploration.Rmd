@@ -239,6 +239,8 @@ table(network_df$swp_text)
 table(network_df$cvp_text)
 
 nrow(network_df%>%filter(!source_type %in% c("PWS", "Non-PWS wholesaler")))
+
+table(all_nodes%>%filter(type == "system")%>%pull(source_type), useNA = "always")
 ```
 
 # System metrics
