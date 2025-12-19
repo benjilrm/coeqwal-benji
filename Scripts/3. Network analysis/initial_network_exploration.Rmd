@@ -143,29 +143,22 @@ rm(path_length_matrix, system_to_system_matrix)
 ## Source diversity
 
 ```{r}
-# Calculate HHI for each system
-system_diversity = sapply(systems, function(system) {
-  # Get edges going into this system (sources supplying it)
-  incoming_edges = E(network)[.to(system)]
-  
-  if (length(incoming_edges) == 0) return(NA)  # no sources
-  
-  # Get the usage percentages for this system's sources
-  usage_percentages = incoming_edges$average_source_usage/100
-  
-  # Calculate HHI (sum of squares of market shares, scaled 0-10000)
-  hhi = sum((usage_percentages * 100)^2)
-  
-  return(hhi)})
+# Calculate GW percentage for each system
+gw_rows = network_df %>%
+  group_by(pwsid) %>%
+  reframe(
+    source_name = "gw", 
+    source_type = "gw",
+    average_source_usage = 100 - sum(average_source_usage)) %>%
+  filter(average_source_usage > 0)
 
-# Create a diversity data frame
-diversity_df = data.frame(
-  pwsid = systems$name,
-  hhi = system_diversity,
-  stringsAsFactors = FALSE,
-  row.names = NULL)
+# Combine with original data
+diversity_df = bind_rows(network_df, gw_rows)%>%
+  arrange(pwsid, source_name)%>%
+  group_by(pwsid)%>%
+  reframe(hhi = sum(average_source_usage^2))
 
-rm(system_diversity, systems, sources)
+rm(gw_rows, systems, sources)
 ```
 
 Kristin also mentioned [participation coefficient](https://www.google.com/url?q=https://www.nature.com/articles/s41467-017-01189-w%23:~:text%3DParticipation%2520coefficient,-Given%2520a%2520particular%26text%3Dwhere%2520%257BK_i%257D%2520is%2520the%2520sum,are%2520to%2520a%2520single%2520community&sa=D&source=docs&ust=1762796373372331&usg=AOvVaw3DkgsUakhBdOK-fW7kOtPS). 
@@ -193,7 +186,7 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
   left_join(., diversity_df, by = "pwsid")%>%
   left_join(., all_nodes%>%
               filter(type == "system")%>%
-              select(id, system_name:num_sw_sources, system_size, pop_served)%>%
+              select(id, system_name:num_sw_sources, system_size, pop_served, gw_access:gw_compliant_w_dw_standards)%>%
               rename(pwsid = id), 
             by = "pwsid")%>%
   left_join(., comb_vulnerability, by = "pwsid")%>%
@@ -653,8 +646,6 @@ source_stats_aggregated = rbind(network_sparse_w_sources, network_sparse_w_syste
 system_metrics_comb = system_metrics_comb%>%
   left_join(., source_stats_aggregated, by = "pwsid")
 
-system_metrics_comb
-
 rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_stats_aggregated)
 ```
 
@@ -662,12 +653,51 @@ rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_st
 ```{r}
 # Select features for clustering
 features <- system_metrics_comb %>%
-  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, hhi, num_sw_sources, system_name:state_classification, purchased, drought_vulnerable, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length))
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, drought_vulnerable, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
 # Determine optimal number of clusters (optional)
 fviz_nbclust(features, kmeans, method = "wss") + 
   labs(subtitle = "Elbow Method")
 ```
+
+
+```{r}
+library(mclust)
+
+# Model-based clustering - automatically determines optimal variables
+mclust_result <- Mclust(features)
+
+# Get optimal number of clusters and variables
+summary(mclust_result)
+
+# Add to data
+clusters = system_metrics_comb %>%
+  mutate(mclust_cluster = mclust_result$classification,
+         pop_na = ifelse(is.na(pop_served), 1, 0))%>%
+  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, pacific_drought_vulnerable:purchased, gw_compliant_w_dw_standards))%>%
+  group_by(mclust_cluster)%>%
+  reframe(n = n(), 
+          across(everything(), ~ mean(.x, na.rm = TRUE)))
+
+clusters
+```
+
+
+```{r}
+# Create a focused summary with key variables
+library(kableExtra)
+key_summary = clusters %>%
+  select(mclust_cluster, n, in_degree:hhi, mean_source_out_degree:mean_source_n_reachable_systems, percent_purchased, self_supplied:fully_self_supplied, pop_served, pop_na, gw_access, drought_vulnerable)%>%
+  mutate(across(where(is.numeric), round, 2)) %>%
+  kbl(col.names = c("Cluster", "Size",  "In-Degree", "Out-Degree", "Betweenness", 
+                    "Mean Path Length", "# Reachable Sources", "# Reachable Systems", "HHI", "Mean Source Out-Degree", "Mean Source # of Reachable Systems", "% Volume Purchased", "Self-Supplied", "Fully Self-Supplied", "Pop. Served", "Systems with No Pop. Served", "GW Access", "Drought Vulnerable")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+  
+key_summary
+
+writeLines(key_summary, "Manuscript outputs/cluster_table_mclust.html")
+```
+
 
 
 ```{r}
@@ -696,6 +726,11 @@ cluster_summary = cluster_centers%>%
                       pop_served_na = mean(ifelse(is.na(pop_served), 1, 0))),
             by = "cluster")
 
+cluster_summary
+```
+
+
+```{r}
 # Create a focused summary with key variables
 library(kableExtra)
 key_summary <- cluster_summary %>%
