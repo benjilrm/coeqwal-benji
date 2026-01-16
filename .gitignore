@@ -1,6 +1,6 @@
 # Data
 Data/**
-Inputs/**
+Inputs/
 Outputs/
 
 # But track the specific igraph file
