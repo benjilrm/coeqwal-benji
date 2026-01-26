@@ -8,10 +8,13 @@ suppressPackageStartupMessages({
   suppressWarnings({
   library(tidyverse)   # Data wrangling
   library(here)        # File management
+  library(readxl)      # Read excel files
   library(igraph)      # Network analysis
   library(GGally)      # Exploratory scatter plots
   library(psych)       # Summary stats
   library(factoextra)  # K-means
+  library(tmap)        # Map
+  library(sf)          # Spatial analysis
   })})
 ```
 
@@ -36,34 +39,98 @@ DWR small system vulnerability data for validation, hosted on [this page](https:
 
 More information on documentation and methodology is available [here](https://data.cnra.ca.gov/dataset/water-shortage-vulnerability-technical-methods/resource/090baaf3-dc47-4e21-8eba-d9bf499a76a0)
 ```{r}
-dwr_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability/i07_Water_Shortage_Vulnerability_Small_Water_Systems.csv")%>%
+dwr_vulnerability1 = read.csv("Data/Source/Small System Drought Vulnerability/i07_Water_Shortage_Vulnerability_Small_Water_Systems.csv")%>%
   select(SABL_PWSID, SC5e_Drought_Impact)%>%
-  rename(pwsid = 1, drought_vulnerable = 2)%>%
-  mutate(drought_vulnerable = ifelse(grepl("Listed as having", drought_vulnerable), 1, 0))
+  rename(pwsid = 1, sb552_drought_vulnerable = 2)%>%
+  mutate(sb552_drought_vulnerable = ifelse(grepl("Listed as having", sb552_drought_vulnerable), 1, 0))%>%
+  filter(pwsid %in% all_nodes$id & sb552_drought_vulnerable == 1)
 ```
 
-To get more commprehensive drought vulnerability data, we also add to this list a dataset of drought-vulnerable public water systems compiled by the Pacific Institute as part of [this](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA_Jan_2017.pdf) 2017 report. The data sources are also listed [here](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA-2017_Appendix1A_3.pdf). 
+To get more comprehensive drought vulnerability data, we also add to this list a dataset of drought-vulnerable public water systems compiled by the Pacific Institute as part of [this](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA_Jan_2017.pdf) 2017 report. The data sources are also listed [here](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA-2017_Appendix1A_3.pdf). 
 ```{r}
 pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability/Appendix-1B-Drought-Impacted-Public-Water-Systems.xlsx - DroughtImpactedPWS.csv")%>%
   rename(pwsid = PWSID)%>%
   select(pwsid)%>%
   filter(pwsid != "")%>%
-  mutate(drought_vulnerable = 1, pacific_drought_vulnerable = 1)
+  mutate(pacific_drought_vulnerable = 1)
 ```
+
+
+Data provided by DWR to Kristin and sent via email on Jan 16, 2026
+```{r}
+dwr_vulnerability2 = read_excel("Data/Source/Small System Drought Vulnerability/Compiled DWR PRA impacted systems.xlsx")%>%
+  rename(system_name = 1)%>%
+  unique()%>%
+  mutate(
+    pwsid = case_when(
+      grepl("Banning Heights", system_name) ~ "CA3301031",
+      grepl("Bolinas", system_name) ~ "CA2110005",
+      grepl("Brooktrails", system_name) ~ "CA2310009",
+      grepl("Burnt", system_name) ~ "CA5304109",
+      grepl("Cachuma", system_name) ~ "CA4210028",
+      grepl("Camptonville", system_name) ~ "CA5800924",
+      grepl("Casitas", system_name) ~ "CA5601104",
+      grepl("Chemeketa", system_name) ~ "CA4300517",
+      grepl("Bragg", system_name) ~ "CA2310001",
+      grepl("Huron", system_name) ~ "CA1010044",
+      grepl("City of Lakeport", system_name) ~ "CA1710004",
+      grepl("Orange Cove", system_name) ~ "CA1010023",
+      grepl("Trinidad", system_name) ~ "CA1210018",
+      grepl("Ukiah", system_name) ~ "CA2310003",
+      grepl("Westmorland", system_name) ~ "CA1310008",
+      grepl("Clearlake", system_name) ~ "CA1710001",
+      grepl("Colonial Heights", system_name) ~ "CA3910002",
+      grepl("Lincoln Village", system_name) ~ "CA3910010",
+      grepl("Davenport", system_name) ~ "CA4400571",
+      grepl("El Toro", system_name) ~ "CA3010079",
+      grepl("Elk Creek", system_name) ~ "CA1100616",
+      grepl("18", system_name) ~ "CA1010051",
+      grepl("Groveland", system_name) ~ "CA5510009",
+      grepl("Garberville", system_name) ~ "CA1210008",
+      grepl("Harbor", system_name) ~ "CA1700568",
+      grepl("Inverness", system_name) ~ "CA2110001",
+      grepl("Irish", system_name) ~ "CA2310012",
+      grepl("Kettleman", system_name) ~ "CA1610009",
+      grepl("Konocti County", system_name) ~ "CA1710006",
+      grepl("La Cumbre", system_name) ~ "CA4210024",
+      grepl("North Marin", system_name) ~ "CA2110003",
+      grepl("Redwood Valley", system_name) ~ "CA2310008",
+      grepl("Springville", system_name) ~ "CA5410011",
+      grepl("Spring Valley Lake", system_name) ~ "CA1710018",
+      grepl("Lakeport", system_name) ~ "CA1710021",
+      grepl("Don Pedro", system_name) ~ "CA5510008",
+      grepl("Loma Mar", system_name) ~ "CA4100512",
+      grepl("Hidden Lakes", system_name) ~ "CA2000544",
+      grepl("Marygold", system_name) ~ "CA3610028",
+      grepl("Mount Konocti", system_name) ~ "CA1710014",
+      grepl("Mountain Gate", system_name) ~ "CA4510002",
+      grepl("Oceano", system_name) ~ "CA4010005",
+      grepl("Redway", system_name) ~ "CA1210011",
+      grepl("Rubio", system_name) ~ "CA1910140",
+      grepl("San Lorenzo", system_name) ~ "CA4410014",
+      grepl("Senior Canyon", system_name) ~ "CA5601117",
+      grepl("Sugarloaf", system_name) ~ "CA4500006",
+      grepl("Jones Valley", system_name) ~ "CA4510004",
+      grepl("Sierraville", system_name) ~ "CA4600018",
+      grepl("Stinson", system_name) ~ "CA2110004",
+      grepl("Tuolu", system_name) ~ "CA5510003",
+      grepl("Westhaven", system_name) ~ "CA1210024"))%>%
+  filter(!is.na(pwsid))%>%
+  select(-system_name)%>%
+  mutate(dwr_drought_vulnerable = 1)
+```
+
+
+
 
 Now we can combine the two. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
 ```{r}
-comb_vulnerability = bind_rows(dwr_vulnerability, pacific_vulnerability)%>%
-  #filter(pwsid == "CA5610068")%>%
-  group_by(pwsid)%>%
-  reframe(
-    drought_vulnerable = max(drought_vulnerable, na.rm = T),
-    pacific_drought_vulnerable = max(pacific_drought_vulnerable, na.rm = T)) %>%
-  ungroup() %>%
-  mutate(across(c(drought_vulnerable, pacific_drought_vulnerable), 
-                ~ ifelse(is.infinite(.), NA, .)))
+comb_vulnerability = full_join(dwr_vulnerability1, dwr_vulnerability2, by = "pwsid")%>%
+  full_join(., pacific_vulnerability, by = "pwsid")%>%
+  mutate(across(where(is.numeric), ~replace_na(.x, 0)),
+         any_drought_vulnerable = 1)
 
-rm(dwr_vulnerability, pacific_vulnerability)
+rm(dwr_vulnerability1, dwr_vulnerability2, pacific_vulnerability)
 ```
 
 # Calculating Metrics
@@ -190,7 +257,7 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
               rename(pwsid = id), 
             by = "pwsid")%>%
   left_join(., comb_vulnerability, by = "pwsid")%>%
-  mutate(across(c(drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))
+  mutate(across(c(sb552_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))
   
 rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
 ```
@@ -219,8 +286,15 @@ cat("Transitivity:", round(transitivity(network, type = "global"), 4), "\n")
 
 # Basic centrality measures
 cat("Average degree:", round(mean(degree(network)), 2), "\n")
+cat("Median degree:", round(median(degree(network)), 2), "\n")
 cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
 cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
+
+length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)
+length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)
+
+system_metrics_comb%>%
+  filter(pop_served <= 10000)
 ```
 
 
@@ -335,12 +409,12 @@ system_metrics_comb %>%
     n = n(),
     self_supplied = mean(self_supplied) * 100,
     fully_self_supplied = mean(fully_self_supplied) * 100,
-    drought_vulnerable = mean(drought_vulnerable) * 100) %>%
+    drought_vulnerable = mean(any_drought_vulnerable) * 100) %>%
   mutate(across(-c(system_size_agg, n), ~ round(., 1)))
 
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$self_supplied)
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$fully_self_supplied)
-chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$drought_vulnerable)
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$any_drought_vulnerable)
 
 small_system_metrics_comb = system_metrics_comb%>%
   filter(system_size_agg == "Small")
@@ -427,19 +501,34 @@ system_metrics_comb%>%
 Quick statistical test to see if distribution is different by group
 Using mann-whitney test since data is non-parametric
 ```{r}
-wilcox.test(hhi ~ drought_vulnerable, data = small_system_metrics_comb)
-aggregate(hhi ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+wilcox.test(hhi ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(hhi ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(in_degree ~ drought_vulnerable, data = small_system_metrics_comb)
-aggregate(in_degree ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+wilcox.test(in_degree ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(in_degree ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(mean_path_length ~ drought_vulnerable, data = small_system_metrics_comb)
-aggregate(mean_path_length ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+wilcox.test(mean_path_length ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
-wilcox.test(n_reachable_sources ~ drought_vulnerable, data = small_system_metrics_comb)
-aggregate(n_reachable_sources ~ drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+wilcox.test(n_reachable_sources ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+```
 
+```{r}
+wilcox.test(hhi ~ dwr_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(hhi ~ dwr_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
+wilcox.test(in_degree ~ dwr_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(in_degree ~ dwr_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ dwr_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ dwr_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ dwr_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ dwr_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+```
+
+```{r}
 wilcox.test(hhi ~ pacific_drought_vulnerable, data = small_system_metrics_comb)
 aggregate(hhi ~ pacific_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
 
@@ -594,14 +683,15 @@ Sources that primarily serve larger systems tend to have greater out-degree and 
 First, we determine whether each source serves any drought-impacted system or not
 ```{r}
 serve_drought_systems = network_df%>%
-  left_join(., system_metrics_comb%>%select(pwsid, drought_vulnerable), by = "pwsid")%>%
+  left_join(., system_metrics_comb%>%select(pwsid, any_drought_vulnerable), by = "pwsid")%>%
   group_by(source_name)%>%
-  reframe(drought_system_served = ifelse(mean(drought_vulnerable)>= 0.5, 1, 0))
+  reframe(drought_system_served = ifelse(mean(any_drought_vulnerable)>= 0.5, 1, 0))
 
 source_metrics_comb = source_metrics_comb%>%
   left_join(., serve_drought_systems, by = "source_name")
 
 table(source_metrics_comb$drought_system_served)
+length(which(source_metrics_comb$drought_system_served == 1))/nrow(source_metrics_comb)
 
 rm(serve_drought_systems)
 ```
@@ -655,10 +745,18 @@ rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_st
 ```{r}
 # Select features for clustering
 features <- system_metrics_comb %>%
-  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, drought_vulnerable, pacific_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, sb552_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
+small_system_features = small_system_metrics_comb%>%
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, sb552_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+
+small_system_features
+```
+
+
+```{r, eval = F}
 # Determine optimal number of clusters (optional)
-fviz_nbclust(features, kmeans, method = "wss") + 
+fviz_nbclust(small_system_features, kmeans, method = "wss") + 
   labs(subtitle = "Elbow Method")
 ```
 
@@ -667,16 +765,15 @@ fviz_nbclust(features, kmeans, method = "wss") +
 library(mclust)
 
 # Model-based clustering - automatically determines optimal variables
-mclust_result <- Mclust(features)
+mclust_result <- Mclust(small_system_features)
 
 # Get optimal number of clusters and variables
 summary(mclust_result)
 
 # Add to data
-clusters = system_metrics_comb %>%
-  mutate(mclust_cluster = mclust_result$classification,
-         pop_na = ifelse(is.na(pop_served), 1, 0))%>%
-  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, pacific_drought_vulnerable:purchased, gw_compliant_w_dw_standards))%>%
+clusters = small_system_metrics_comb %>%
+  mutate(mclust_cluster = mclust_result$classification)%>%
+  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, sb552_drought_vulnerable:pacific_drought_vulnerable, purchased, gw_compliant_w_dw_standards))%>%
   group_by(mclust_cluster)%>%
   reframe(n = n(), 
           across(everything(), ~ mean(.x, na.rm = TRUE)))
@@ -754,14 +851,28 @@ Seems to break into 3 clusters:
 3) Transfer out a lot of water (mean out-degree almost 4 and betweenness high). Purchase a decent amount of water and seem to sell a lot of it on.
 
 
+# Figures
 
 ```{r}
-isolated_systems = system_metrics_comb%>%
-  filter(in_degree == 1 & mean_source_out_degree == 1 & out_degree == 0 & mean_path_length == 1)
+systems = st_read("Data/Outputs/Shapefiles for dashboard/20251210_systems.shp")
 
+sources = st_read("Data/Outputs/Shapefiles for dashboard/20251210_sources.shp")
 
-network_df%>%
-  filter(pwsid %in% isolated_systems$pwsid)%>%
-  arrange(pwsid)
+systems%>%data.frame()
+
+library(tigris)
+ca_polygon <- states(cb = TRUE, resolution = "20m") %>%
+  filter(NAME == "California")
+
+# Define manual color palettes
+systems_colors <- c("#FFA500","#FF0000","#FFFF00")
+sources_colors <- c("#4169E1", "#800080")
+
+tm_shape(ca_polygon)+
+  tm_borders()+
+  tm_shape(systems)+
+  tm_dots("prvdr_t", title = "adsfiopasjdo")+
+  tm_shape(sources)+
+  tm_dots(fill = "src_ty_", title = "Source Type")
 ```
 
