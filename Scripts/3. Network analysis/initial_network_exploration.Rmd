@@ -38,7 +38,7 @@ network_df = read.csv("Data/Outputs/20251215_network_joined.csv")
 DWR small system vulnerability data for validation, hosted on [this page](https://water.ca.gov/Programs/Water-Use-And-Efficiency/SB-552/SB-552-Tool) and downloaded as a csv from [this link](https://data.cnra.ca.gov/dataset/i07-water-shortage-vulnerability-small-water-systems).
 
 More information on documentation and methodology is available [here](https://data.cnra.ca.gov/dataset/water-shortage-vulnerability-technical-methods/resource/090baaf3-dc47-4e21-8eba-d9bf499a76a0)
-```{r}
+```{r, eval = F}
 dwr_vulnerability1 = read.csv("Data/Source/Small System Drought Vulnerability/i07_Water_Shortage_Vulnerability_Small_Water_Systems.csv")%>%
   select(SABL_PWSID, SC5e_Drought_Impact)%>%
   rename(pwsid = 1, sb552_drought_vulnerable = 2)%>%
@@ -58,7 +58,7 @@ pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability
 
 Data provided by DWR to Kristin and sent via email on Jan 16, 2026
 ```{r}
-dwr_vulnerability2 = read_excel("Data/Source/Small System Drought Vulnerability/Compiled DWR PRA impacted systems.xlsx")%>%
+dwr_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/Compiled DWR PRA impacted systems.xlsx")%>%
   rename(system_name = 1)%>%
   unique()%>%
   mutate(
@@ -121,16 +121,25 @@ dwr_vulnerability2 = read_excel("Data/Source/Small System Drought Vulnerability/
 ```
 
 
-
-
-Now we can combine the two. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
 ```{r}
-comb_vulnerability = full_join(dwr_vulnerability1, dwr_vulnerability2, by = "pwsid")%>%
+swrcb_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/Filtered SWRCB PRA data.xlsx")%>%
+  select(PWS)%>%
+  rename(pwsid = 1)%>%
+  mutate(pwsid = paste("CA", pwsid, sep = ""),
+         swrcb_drought_vulnerable = 1)
+  filter(pwsid %in% all_nodes$id)
+```
+
+
+Now we can combine the three. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
+```{r}
+comb_vulnerability = full_join(dwr_vulnerability, swrcb_vulnerability, by = "pwsid")%>%
   full_join(., pacific_vulnerability, by = "pwsid")%>%
   mutate(across(where(is.numeric), ~replace_na(.x, 0)),
-         any_drought_vulnerable = 1)
+         any_drought_vulnerable = 1)%>%
+  unique()
 
-rm(dwr_vulnerability1, dwr_vulnerability2, pacific_vulnerability)
+rm(dwr_vulnerability, swrcb_vulnerability, pacific_vulnerability)
 ```
 
 # Calculating Metrics
@@ -257,7 +266,8 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
               rename(pwsid = id), 
             by = "pwsid")%>%
   left_join(., comb_vulnerability, by = "pwsid")%>%
-  mutate(across(c(sb552_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))
+  mutate(across(c(swrcb_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))%>%
+  unique()
   
 rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
 ```
@@ -283,7 +293,6 @@ cat("Number of edges:", ecount(network), "\n")
 cat("Network density:", round(edge_density(network, loops = FALSE), 4), "\n")
 cat("Transitivity:", round(transitivity(network, type = "global"), 4), "\n")
 
-
 # Basic centrality measures
 cat("Average degree:", round(mean(degree(network)), 2), "\n")
 cat("Median degree:", round(median(degree(network)), 2), "\n")
@@ -292,19 +301,19 @@ cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
 
 length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)
 length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)
-
-system_metrics_comb%>%
-  filter(pop_served <= 10000)
 ```
 
 
-```{r}
-table(all_nodes$source_type)
 
-table(all_nodes$gw_access)
-table(all_nodes$gw_compliant_w_dw_standards)
-table(all_nodes$provider_type)
-table(all_nodes%>%filter(type == "system")%>%pull(system_size), useNA = "always")
+```{r}
+table(system_metrics_comb$source_type)
+
+table(system_metrics_comb$gw_access)
+table(system_metrics_comb$gw_compliant_w_dw_standards)
+
+table(system_metrics_comb$provider_type)
+table(system_metrics_comb$system_size, useNA = "always")
+table(system_metrics_comb$system_size_agg, useNA = "always")
 
 
 table(network_df$purchased)
@@ -313,9 +322,17 @@ table(network_df$swp_text)
 table(network_df$cvp_text)
 
 nrow(network_df%>%filter(!source_type %in% c("PWS", "Non-PWS wholesaler")))
-
+table(system_metrics_comb$provider_type)
 table(all_nodes%>%filter(type == "system")%>%pull(source_type), useNA = "always")
+
+summary(system_metrics_comb$in_degree)
 ```
+
+```{r}
+nrow(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id))
+table(system_metrics_comb%>%filter(system_size_agg == "Small")%>%pull(provider_type))
+```
+
 
 # System metrics
 
@@ -345,6 +362,14 @@ system_metrics_comb%>%
   as.data.frame()%>%
   rownames_to_column("variable")%>%
   select(-c(vars, sd, trimmed, mad, range:se))
+
+wilcox.test(data = system_metrics_comb, in_degree ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, out_degree ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, betweenness ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, hhi ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, mean_path_length ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, n_reachable_sources ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, n_reachable_systems ~ system_size_agg)
 ```
 
 Plots to visualise experience
@@ -475,28 +500,6 @@ aggregate(n_reachable_sources ~ fully_self_supplied, data = small_system_metrics
 ## Differences by drought impacted
 
 
-Plots comparing distributions of vulnerability metrics by DWR drought vulnerability assessment
-```{r}
-system_metrics_comb%>%
-  filter(!is.na(drought_vulnerable))%>%
-  ggplot(aes(as.factor(drought_vulnerable), hhi))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "DWR Drought Vulnerability", y = "HHI")
-system_metrics_comb%>%
-  filter(!is.na(drought_vulnerable))%>%
-  ggplot(aes(as.factor(drought_vulnerable), in_degree))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "DWR Drought Vulnerability", y = "In-Degree Centrality")
-system_metrics_comb%>%
-  filter(!is.na(drought_vulnerable))%>%
-  ggplot(aes(as.factor(drought_vulnerable), mean_path_length))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "DWR Drought Vulnerability", y = "Mean Path Length to Source")
-```
-
 
 Quick statistical test to see if distribution is different by group
 Using mann-whitney test since data is non-parametric
@@ -542,6 +545,8 @@ aggregate(mean_path_length ~ pacific_drought_vulnerable, data = small_system_met
 Tests indicate that small systems designated as drought-vulnerable tend to have shorter path length (ie: less removed from their original sources) than non-drought-vulnerable systems. HHI and # of sources are not significant. 
 
 ## Differences by size
+
+
 
 ```{r}
 system_metrics_comb%>%
@@ -696,20 +701,6 @@ length(which(source_metrics_comb$drought_system_served == 1))/nrow(source_metric
 rm(serve_drought_systems)
 ```
 
-Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
-```{r}
-source_metrics_comb%>%
-  ggplot(aes(as.factor(drought_system_served), out_degree))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "Serves Drought-Impacted Systems", y = "Mean Out-Degree Centrality")
-source_metrics_comb%>%
-  ggplot(aes(as.factor(drought_system_served), n_reachable_systems))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "Serves Drought-Impacted Systems", y = "Mean Number of Reachable Systems")
-```
-
 ```{r}
 wilcox.test(out_degree ~ drought_system_served, data = source_metrics_comb)
 aggregate(out_degree ~ drought_system_served, data = source_metrics_comb, FUN = mean)
@@ -748,9 +739,7 @@ features <- system_metrics_comb %>%
   select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, sb552_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
 small_system_features = small_system_metrics_comb%>%
-  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, sb552_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
-
-small_system_features
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, swrcb_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 ```
 
 
@@ -773,7 +762,7 @@ summary(mclust_result)
 # Add to data
 clusters = small_system_metrics_comb %>%
   mutate(mclust_cluster = mclust_result$classification)%>%
-  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, sb552_drought_vulnerable:pacific_drought_vulnerable, purchased, gw_compliant_w_dw_standards))%>%
+  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, dwr_drought_vulnerable:pacific_drought_vulnerable, purchased, gw_compliant_w_dw_standards))%>%
   group_by(mclust_cluster)%>%
   reframe(n = n(), 
           across(everything(), ~ mean(.x, na.rm = TRUE)))
@@ -786,10 +775,9 @@ clusters
 # Create a focused summary with key variables
 library(kableExtra)
 key_summary = clusters %>%
-  select(mclust_cluster, n, in_degree:hhi, mean_source_out_degree:mean_source_n_reachable_systems, percent_purchased, self_supplied:fully_self_supplied, pop_served, pop_na, gw_access, drought_vulnerable)%>%
-  mutate(across(where(is.numeric), round, 2)) %>%
-  kbl(col.names = c("Cluster", "Size",  "In-Degree", "Out-Degree", "Betweenness", 
-                    "Mean Path Length", "# Reachable Sources", "# Reachable Systems", "HHI", "Mean Source Out-Degree", "Mean Source # of Reachable Systems", "% Volume Purchased", "Self-Supplied", "Fully Self-Supplied", "Pop. Served", "Systems with No Pop. Served", "GW Access", "Drought Vulnerable")) %>%
+  #select(mclust_cluster, n, in_degree:hhi, mean_source_out_degree:mean_source_n_reachable_systems, percent_purchased, self_supplied:fully_self_supplied, pop_served, pop_na, gw_access, any_drought_vulnerable)%>%
+  mutate(across(where(is.numeric), round, 2)) 
+  #kbl(col.names = c("Cluster", "Size",  "In-Degree", "Out-Degree", "Betweenness", "Mean Path Length", "# Reachable Sources", "# Reachable Systems", "HHI", "Mean Source Out-Degree", "Mean Source # of Reachable Systems", "% Volume Purchased", "Self-Supplied", "Fully Self-Supplied", "Pop. Served", "Systems with No Pop. Served", "GW Access", "Drought Vulnerable")) %>%
   kable_styling(bootstrap_options = c("striped", "hover"))
   
 key_summary
