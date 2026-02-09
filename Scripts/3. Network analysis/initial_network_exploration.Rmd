@@ -33,6 +33,21 @@ load("data for upload/20251218_network_igraph.Rdata")
 network_df = read.csv("Data/Outputs/20251215_network_joined.csv")
 ``` 
 
+```{r}
+V(network)$color <- ifelse(V(network)$type == "source", "dodgerblue3","coral2")
+
+plot(network, 
+     layout = layout.kamada.kawai(network), 
+     vertex.label = NA, 
+     vertex.size = 5, 
+     #vertex.colour = "type", 
+     vertex.frame.colour = "black", 
+     edge.arrow.size = .3, 
+     edge.wdith = 1.5)
+
+```
+
+
 ## Drought vulnerability
 
 DWR small system vulnerability data for validation, hosted on [this page](https://water.ca.gov/Programs/Water-Use-And-Efficiency/SB-552/SB-552-Tool) and downloaded as a csv from [this link](https://data.cnra.ca.gov/dataset/i07-water-shortage-vulnerability-small-water-systems).
@@ -126,7 +141,7 @@ swrcb_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability
   select(PWS)%>%
   rename(pwsid = 1)%>%
   mutate(pwsid = paste("CA", pwsid, sep = ""),
-         swrcb_drought_vulnerable = 1)
+         swrcb_drought_vulnerable = 1)%>%
   filter(pwsid %in% all_nodes$id)
 ```
 
@@ -736,10 +751,12 @@ rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_st
 ```{r}
 # Select features for clustering
 features <- system_metrics_comb %>%
-  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, sb552_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
 small_system_features = small_system_metrics_comb%>%
   select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, swrcb_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+
+small_system_features
 ```
 
 
@@ -754,7 +771,7 @@ fviz_nbclust(small_system_features, kmeans, method = "wss") +
 library(mclust)
 
 # Model-based clustering - automatically determines optimal variables
-mclust_result <- Mclust(small_system_features)
+mclust_result <- Mclust(small_system_features%>%select(-mean_source_out_degree, -mean_source_n_reachable_systems))
 
 # Get optimal number of clusters and variables
 summary(mclust_result)
@@ -769,6 +786,18 @@ clusters = small_system_metrics_comb %>%
 
 clusters
 ```
+
+```{r}
+library(fmsb)
+
+devtools::install_github("ricardo-bion/ggradar")
+library(ggradar)
+library(scales)
+ggradar(clusters%>%
+          select(1, 3:4, hhi, gw_access, percent_purchased)%>%
+          mutate(across(c(in_degree, out_degree, hhi, percent_purchased), rescale)))
+```
+
 
 
 ```{r}
