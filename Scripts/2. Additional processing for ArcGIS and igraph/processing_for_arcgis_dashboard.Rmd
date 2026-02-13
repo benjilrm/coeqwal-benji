@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
   library(readxl)      # Read excel files
   library(sf)          # Spatial processing
   library(tmap)        # Maps
+  library(glue)        # Text processing
   })})
 ```
 
@@ -40,7 +41,6 @@ network = read.csv("Data/Outputs/20251215_network_joined.csv")
 - Remove columns we definitely don't need
 - Convert any columns with 0/1 to No/Yes, or in the case of gw, combine both columns into one categorical column
 - Add new column for system size based on population served (thresholds provided by Kristin)
-
 ```{r}
 network_clean = network%>%
   
@@ -121,6 +121,7 @@ rbind(
   reframe(n = n())%>%
   filter(pwsid %in% as.vector(network_w_lat_longs%>%filter(source_type == "PWS")%>%pull(source_name)))%>%
   filter(n > 1)
+  
 ```
 
 
@@ -173,6 +174,8 @@ tm_shape(rbind(sources_sf%>%mutate(df = "original"), jittered_sources%>%mutate(d
 ## Connections
 
 Put new jittered source coordinates in master dataset
+
+Change source names to the system name (just for PWSID sources)
 ```{r}
 network_w_lat_longs = jittered_sources %>%
   st_coordinates() %>%  
@@ -182,7 +185,14 @@ network_w_lat_longs = jittered_sources %>%
   right_join(., network_w_lat_longs, by = "source_name")%>%
   mutate(source_lat = ifelse(is.na(source_lat_jittered), source_lat, source_lat_jittered),
          source_lon = ifelse(is.na(source_lon_jittered), source_lon, source_lon_jittered))%>%
-  select(-c(source_lat_jittered, source_lon_jittered))
+  select(-c(source_lat_jittered, source_lon_jittered))%>%
+  
+  mutate(source_pwsid = ifelse(source_type == "PWS", source_name, NA))%>%
+  left_join(., 
+            systems_sf%>%select(system_name, pwsid)%>%st_drop_geometry()%>%rename(source_name_for_systems = system_name), 
+            by = c("source_pwsid" = "pwsid"))%>%
+  mutate(source_name = ifelse(is.na(source_name_for_systems), source_name, glue("{source_name_for_systems} ({source_pwsid})")))%>%
+  select(-source_name_for_systems)
 ```
 
 
@@ -222,7 +232,7 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251210_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260213_connections.shp", delete_dsn = T)
 #st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
 st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251210_systems.shp", delete_dsn = T)
