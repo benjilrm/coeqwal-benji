@@ -285,6 +285,11 @@ system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pw
   unique()
   
 rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
+
+system_metrics_comb%>%
+  select(contains("drought_vulnerable"))
+
+table(system_metrics_comb$any_drought_vulnerable)
 ```
 
 Join all source network metrics as well
@@ -314,8 +319,9 @@ cat("Median degree:", round(median(degree(network)), 2), "\n")
 cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
 cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
 
-length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)
-length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)
+
+cat("% sources with 1 connection:", round(length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)*100, 1))
+cat("% systems with 1 connection:", round(length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)*100, 1))
 ```
 
 
@@ -344,7 +350,10 @@ summary(system_metrics_comb$in_degree)
 ```
 
 ```{r}
-nrow(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id))
+#Small systems that also sell water
+cat("Small systems that also sell water:",  nrow(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id)))
+
+#Provider type among small systems
 table(system_metrics_comb%>%filter(system_size_agg == "Small")%>%pull(provider_type))
 ```
 
@@ -455,7 +464,10 @@ system_metrics_comb %>%
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$self_supplied)
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$fully_self_supplied)
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$any_drought_vulnerable)
+```
 
+
+```{r}
 small_system_metrics_comb = system_metrics_comb%>%
   filter(system_size_agg == "Small")
 ```
@@ -653,6 +665,12 @@ source_metrics_comb%>%
   select(-c(vars, sd, trimmed, mad, range:se))
 ```
 
+```{r}
+source_metrics_comb
+table(source_metrics_comb$source_type)
+```
+
+
 ## Differences by serving small vs large systems
 
 First, let's determine the primary system size each source serves. We use the median population served to determine if large systems or small systems are the primary recipients. 
@@ -672,21 +690,8 @@ rm(system_size_served)
 
 
 ```
-Now, we can make a quick plot and statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
-```{r}
-source_metrics_comb%>%
-  filter(!is.na(primary_system_size_served))%>%
-  ggplot(aes(as.factor(primary_system_size_served), out_degree))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "Primary System Size Served", y = "Mean Out-Degree Centrality")
-source_metrics_comb%>%
-  filter(!is.na(primary_system_size_served))%>%
-  ggplot(aes(as.factor(primary_system_size_served), n_reachable_systems))+
-  geom_violin(fill = "coral1")+
-  theme_bw()+
-  labs(x = "Primary System Size Served", y = "Mean Number of Reachable Systems")
-```
+Now, we can make a quick statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
+
 
 ```{r}
 wilcox.test(out_degree ~ primary_system_size_served, data = source_metrics_comb)
@@ -756,7 +761,7 @@ features <- system_metrics_comb %>%
 small_system_features = small_system_metrics_comb%>%
   select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, swrcb_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
-small_system_features
+small_system_metrics_comb
 ```
 
 
@@ -771,7 +776,7 @@ fviz_nbclust(small_system_features, kmeans, method = "wss") +
 library(mclust)
 
 # Model-based clustering - automatically determines optimal variables
-mclust_result <- Mclust(small_system_features%>%select(-mean_source_out_degree, -mean_source_n_reachable_systems))
+mclust_result <- Mclust(small_system_features)
 
 # Get optimal number of clusters and variables
 summary(mclust_result)
@@ -788,61 +793,46 @@ clusters
 ```
 
 ```{r}
-library(fmsb)
-
-devtools::install_github("ricardo-bion/ggradar")
 library(ggradar)
 library(scales)
 ggradar(clusters%>%
           select(1, 3:4, hhi, gw_access, percent_purchased)%>%
-          mutate(across(c(in_degree, out_degree, hhi, percent_purchased), rescale)))
+          mutate(across(c(in_degree, out_degree, hhi, percent_purchased), rescale))%>%
+          rename("In-Degree" = in_degree, 
+                 "Out-Degree" = out_degree, 
+                 "Source Diversity \n (HHI)" = hhi, 
+                 "GW Access" = gw_access,
+                 "% Volume \n Purchased" = percent_purchased),
+        plot.extent.x.sf = 1.3,
+        group.colours = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "coral1"),
+        group.point.size = 4)+
+        labs(colour = "Cluster #")+
+        theme(
+          legend.position = "left", 
+          legend.title = element_text(size = 15), 
+          legend.text = element_text(size = 12))
 ```
 
 
-
-```{r}
-# Create a focused summary with key variables
-library(kableExtra)
-key_summary = clusters %>%
-  #select(mclust_cluster, n, in_degree:hhi, mean_source_out_degree:mean_source_n_reachable_systems, percent_purchased, self_supplied:fully_self_supplied, pop_served, pop_na, gw_access, any_drought_vulnerable)%>%
-  mutate(across(where(is.numeric), round, 2)) 
-  #kbl(col.names = c("Cluster", "Size",  "In-Degree", "Out-Degree", "Betweenness", "Mean Path Length", "# Reachable Sources", "# Reachable Systems", "HHI", "Mean Source Out-Degree", "Mean Source # of Reachable Systems", "% Volume Purchased", "Self-Supplied", "Fully Self-Supplied", "Pop. Served", "Systems with No Pop. Served", "GW Access", "Drought Vulnerable")) %>%
-  kable_styling(bootstrap_options = c("striped", "hover"))
-  
-key_summary
-
-writeLines(key_summary, "Manuscript outputs/cluster_table_mclust.html")
-```
 
 
 
 ```{r}
 # Perform k-means clustering
 set.seed(123)
-k <- 3  # Based on your typology idea
-kmeans_result <- kmeans(features, centers = k, nstart = 25)
+k <- 2  # Based on your typology idea
+kmeans_result <- kmeans(small_system_features%>%select(-mean_source_out_degree, -mean_source_n_reachable_systems), centers = k, nstart = 5)
 
 # Add cluster assignments
-system_metrics_comb$cluster <- kmeans_result$cluster
-
-# Examine cluster centers to label them
-cluster_centers <- as.data.frame(kmeans_result$centers)
-#rownames(cluster_centers) <- paste("Cluster", 1:k)
-cluster_centers$cluster = 1:k
-cluster_centers$size <- table(kmeans_result$cluster)
+small_system_metrics_comb$kmeans_cluster <- kmeans_result$cluster
 ```
 
 
 ```{r}
-cluster_summary = cluster_centers%>%
-  left_join(., system_metrics_comb%>%
-              group_by(cluster)%>%
-              reframe(mean_pop_served = mean(pop_served, na.rm = T),
-                      mean_drought = mean(drought_vulnerable, na.rm = T),
-                      pop_served_na = mean(ifelse(is.na(pop_served), 1, 0))),
-            by = "cluster")
-
-cluster_summary
+small_system_metrics_comb%>%
+              group_by(kmeans_cluster)%>%
+              reframe(n = n(),
+                      across(where(is.numeric), mean, na.rm = T))
 ```
 
 
