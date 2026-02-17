@@ -394,6 +394,11 @@ wilcox.test(data = system_metrics_comb, hhi ~ system_size_agg)
 wilcox.test(data = system_metrics_comb, mean_path_length ~ system_size_agg)
 wilcox.test(data = system_metrics_comb, n_reachable_sources ~ system_size_agg)
 wilcox.test(data = system_metrics_comb, n_reachable_systems ~ system_size_agg)
+
+wilcox.test(data = system_metrics_comb, gw_access ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, any_drought_vulnerable ~ system_size_agg)
+
+system_metrics_comb%>%filter(system_size_agg == "Small" & gw_access == 0 & in_degree == 1)
 ```
 
 Plots to visualise experience
@@ -464,6 +469,8 @@ system_metrics_comb %>%
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$self_supplied)
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$fully_self_supplied)
 chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$any_drought_vulnerable)
+
+system_metrics_comb%>%filter(system_size_agg == "Small" & (gw_compliant_w_dw_standards == 0 | is.na(gw_compliant_w_dw_standards)) & in_degree == 1 & fully_self_supplied == 1)
 ```
 
 
