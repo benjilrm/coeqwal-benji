@@ -15,6 +15,7 @@ suppressPackageStartupMessages({
   library(factoextra)  # K-means
   library(tmap)        # Map
   library(sf)          # Spatial analysis
+  library(mclust)      # Model-based clustering
   })})
 ```
 
@@ -31,6 +32,12 @@ Our cleaned and processed network data generated into an igraph object
 load("data for upload/20251218_network_igraph.Rdata")
 
 network_df = read.csv("Data/Outputs/20251215_network_joined.csv")
+
+network_df%>%
+  group_by(source_name)%>%
+  filter(n_distinct(cvp_loop) > 1)%>%
+  arrange(source_name)%>%
+  select(system_name:pwsid, source_name:source_type, cvp_text, cvp_loop, cvp_direct)
 ``` 
 
 ```{r}
@@ -40,12 +47,28 @@ plot(network,
      layout = layout.kamada.kawai(network), 
      vertex.label = NA, 
      vertex.size = 5, 
-     #vertex.colour = "type", 
      vertex.frame.colour = "black", 
      edge.arrow.size = .3, 
      edge.wdith = 1.5)
+# Add legend
+legend(x = "topright",  # Position (can be "topleft", "topright", "bottomleft", "bottomright", etc.)
+       legend = c("Water Source", "Water System"),  # Labels
+       fill = c("dodgerblue3", "coral2"),  # Colors matching vertex colors
+       cex = 1,  # Legend size
+       title = "Node Type",  # Optional title
+       bty = "n")  # Optional: removes box around legend
 
+
+plot(network, 
+     layout = layout.fruchterman.reingold(network), 
+     vertex.label = NA, 
+     vertex.size = 5, 
+     vertex.frame.colour = "black", 
+     edge.arrow.size = .3, 
+     edge.wdith = 1.5)
 ```
+
+
 
 
 ## Drought vulnerability
@@ -319,7 +342,6 @@ cat("Median degree:", round(median(degree(network)), 2), "\n")
 cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
 cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
 
-
 cat("% sources with 1 connection:", round(length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)*100, 1))
 cat("% systems with 1 connection:", round(length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)*100, 1))
 ```
@@ -352,6 +374,17 @@ summary(system_metrics_comb$in_degree)
 ```{r}
 #Small systems that also sell water
 cat("Small systems that also sell water:",  nrow(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id)))
+
+table(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id)%>%pull(provider_type))
+
+table(system_metrics_comb%>%
+  filter(system_size_agg == "Small" & provider_type == "Retail")%>%
+  mutate(seller = ifelse(pwsid %in% network_df$source_id, 1, 0))%>%
+  pull(seller))
+
+system_metrics_comb%>%
+  filter(system_size_agg == "Small" & provider_type == "Retail")
+  mutate(seller = ifelse(pwsid %in% network_df$source_id, 1, 0))
 
 #Provider type among small systems
 table(system_metrics_comb%>%filter(system_size_agg == "Small")%>%pull(provider_type))
@@ -768,7 +801,7 @@ features <- system_metrics_comb %>%
 small_system_features = small_system_metrics_comb%>%
   select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, swrcb_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
 
-small_system_metrics_comb
+small_system_features
 ```
 
 
@@ -780,8 +813,6 @@ fviz_nbclust(small_system_features, kmeans, method = "wss") +
 
 
 ```{r}
-library(mclust)
-
 # Model-based clustering - automatically determines optimal variables
 mclust_result <- Mclust(small_system_features)
 
@@ -800,11 +831,34 @@ clusters
 ```
 
 ```{r}
+# Alternatively, create a more elegant solution that works for any number of variables
+vars_to_plot <- c("in_degree", "out_degree", "hhi", "gw_access", "percent_purchased")
+
+
+# Calculate percentiles for each cluster mean
+cluster_percentiles <- clusters %>%
+  select(mclust_cluster, all_of(vars_to_plot)) %>%
+  rowwise() %>%
+  mutate(across(all_of(vars_to_plot), 
+                ~ ecdf(small_system_metrics_comb[[cur_column()]])(.),
+                .names = "pctl_{.col}")) %>%
+  ungroup() %>%
+  select(mclust_cluster, starts_with("pctl_"))
+
+clusters%>%
+          select(1, 3:4, hhi, gw_access, percent_purchased)%>%
+          mutate(across(c(in_degree, out_degree), rescale),
+                 hhi = hhi/10000,
+                 percent_purchased = percent_purchased/100)
+
+
 library(ggradar)
 library(scales)
 ggradar(clusters%>%
           select(1, 3:4, hhi, gw_access, percent_purchased)%>%
-          mutate(across(c(in_degree, out_degree, hhi, percent_purchased), rescale))%>%
+          mutate(across(c(in_degree, out_degree), rescale),
+                 hhi = hhi/10000,
+                 percent_purchased = percent_purchased/100)%>%
           rename("In-Degree" = in_degree, 
                  "Out-Degree" = out_degree, 
                  "Source Diversity \n (HHI)" = hhi, 
