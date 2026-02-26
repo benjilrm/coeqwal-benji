@@ -613,75 +613,6 @@ Tests indicate that small systems designated as drought-vulnerable tend to have 
 
 ## Differences by size
 
-
-
-```{r}
-system_metrics_comb%>%
-  filter(!is.na(system_size))%>%
-  group_by(system_size)%>%
-  reframe(in_degree = mean(in_degree, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = in_degree, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean In-Degree Centrality")+
-  theme(legend.position = "none")
-
-system_metrics_comb%>%
-  filter(!is.na(system_size))%>%
-  group_by(system_size)%>%
-  reframe(hhi = mean(hhi, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = hhi, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean HHI")+
-  theme(legend.position = "none")
-
-system_metrics_comb%>%
-  filter(!is.na(system_size))%>%
-  group_by(system_size)%>%
-  reframe(mean_path_length = mean(mean_path_length, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = mean_path_length, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Mean Path Length")+
-  theme(legend.position = "none")
-
-system_metrics_comb%>%
-  filter(!is.na(system_size))%>%
-  group_by(system_size)%>%
-  reframe(n_reachable_sources = mean(n_reachable_sources, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = n_reachable_sources, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "# of Reachable Sources")+
-  theme(legend.position = "none")
-
-
-system_metrics_comb%>%
-  filter(!is.na(system_size))%>%
-  group_by(system_size)%>%
-  reframe(drought_vulnerable = mean(drought_vulnerable, na.rm = T))%>%
-  mutate(system_size = factor(system_size, levels = c("Very Small", "Small", "Medium", "Large", "Very Large")))%>%
-  ggplot(aes(x = system_size, y = drought_vulnerable, fill = system_size))+
-  geom_bar(stat = "identity")+
-  theme_bw()+
-  labs(x = "System Size", y = "Proportion of Drought-Vulnerable Systems")+
-  theme(legend.position = "none")
-```
-```{r}
-ggplot(system_metrics_comb, aes(pop_served, hhi)) +
-  geom_point()+
-  #geom_density_2d_filled() +
-  #geom_hex(bins = 40) +scale_fill_viridis_c() +
-  theme_minimal()+
-  scale_x_log10()
-```
-
-
 ```{r}
 summary(lm(hhi ~ pop_served, data = system_metrics_comb))
 summary(lm(in_degree ~ pop_served, data = system_metrics_comb))
@@ -691,6 +622,22 @@ summary(lm(n_reachable_sources ~ pop_served, data = system_metrics_comb))
 
 We generally see that as we go from very small to very large systems, in-degree centrality and mean path length increase, and HHI decreases, indicating that larger systems have more sources, greater source diversity, and are more removed from their original source. 
 Based on a simple regression, these trends are statistically significant for HHI and in-degree.
+
+## Differences by gw access
+```{r}
+wilcox.test(in_degree ~ gw_access, data = small_system_metrics_comb)
+aggregate(in_degree ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(hhi ~ gw_access, data = small_system_metrics_comb)
+aggregate(hhi ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ gw_access, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ gw_access, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+```
+
 
 
 # Source metrics
