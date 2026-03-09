@@ -30,7 +30,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20251215_network_joined.csv")
+network = read.csv("Data/Outputs/20260309_network_joined.csv")
 ```
 
 
@@ -47,17 +47,17 @@ network_clean = network%>%
   mutate(
     purchased = ifelse(purchased == 0, "No", "Yes"),
     gw_access_text = case_when(
-      gw_access == 0 ~ "No Groundwater",
+      gw_access == 0 ~ "No groundwater",
       gw_compliant_w_dw_standards == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
       gw_compliant_w_dw_standards == 0 ~ "Groundwater access with no wells meeting MCL requirements",
       is.na(gw_access) ~ "No data"),
     system_size = case_when(
       is.na(pop_served) ~ "NA (Wholesale Provider)",
       pop_served > 100000 ~ "Very Large (>100,000)",
-      pop_served > 10000 ~ "Large (10,000-100,000",
+      pop_served > 10000 ~ "Large (10,000-100,000)",
       pop_served > 3300 ~ "Medium (3,300-10,000)",
       pop_served > 500 ~ "Small (500-3,300)",
-      pop_served <= 500 ~ "Very Small (<500"),
+      pop_served <= 500 ~ "Very Small (<500)"),
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
     cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
 
@@ -66,6 +66,44 @@ network_clean = network%>%
   rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
 
 rm(network)
+```
+
+ADD CONNECTIONS ATTRIBUTES!
+ex: if system OR source has gw or not
+```{r}
+network_clean = network_clean%>%
+  group_by(source_name)%>%
+  mutate(any_swp_source = ifelse(any(swp == "Yes"), "Yes", "No"),
+         any_cvp_source = ifelse(any(cvp == "Yes"), "Yes", "No"),
+         any_purchased_source = ifelse(any(purchased == "Yes"), "Yes", "No"),
+         any_gw_source = case_when(
+           any(gw_access == "Groundwater access with 1 or more well meeting MCL requirements") ~ "Groundwater access with 1 or more well meeting MCL requirements",
+           any(gw_access == "Groundwater access with no wells meeting MCL requirements") ~ "Groundwater access with no wells meeting MCL requirements",
+           any(gw_access == "No data") ~ "No data",
+           T ~ "No groundwater"))%>%
+  ungroup()%>%
+  group_by(pwsid) %>%
+  mutate(
+    any_swp_system = ifelse(any(swp == "Yes"), "Yes", "No"),
+    any_cvp_system = ifelse(any(cvp == "Yes"), "Yes", "No"),
+    any_purchased_system = ifelse(any(purchased == "Yes"), "Yes", "No")) %>%
+  ungroup()
+
+purchased_sources = network_clean %>%
+  filter(purchased == "Yes") %>%
+  pull(source_name) %>%
+  unique()
+
+network_clean = network_clean %>%
+  group_by(pwsid) %>%
+  mutate(
+    any_purchased_system = ifelse(pwsid %in% purchased_sources, "Yes", any_purchased_system)) %>%
+  ungroup()
+
+
+
+network_clean%>%
+  filter(system_name == "SAN FRANCISCO REGIONAL WATER SYSTEM" | source_name == "CA3810001")
 ```
 
 
@@ -132,7 +170,7 @@ rbind(
 Keep one row per system
 ```{r}
 systems_sf = network_w_lat_longs%>%
-  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, system_size)%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, system_size, any_swp_system, any_cvp_system, any_purchased_system)%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
 ```
@@ -152,7 +190,7 @@ Exclude any PWS sources since these will be in the systems dataset.
 Convert to sf point object.
 ```{r}
 sources_sf = network_w_lat_longs%>%
-  select(source_name, source_type, num_systems_served, source_lat, source_lon) %>%
+  select(source_name, source_type, num_systems_served, source_lat, source_lon, any_swp_source, any_cvp_source, any_purchased_source, any_gw_source) %>%
   filter(!is.na(source_lat) & !source_type %in% c("PWS", "Non-PWS wholesaler")) %>%
   unique()%>%
   st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)%>%
@@ -227,17 +265,19 @@ tm_shape(connections_sf)+
   tm_dots(fill = "coral2", size = 0.4)+
   tm_shape(jittered_sources)+
   tm_dots(fill = "skyblue3", size = 0.4)
+
+connections_sf
 ```
 
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260213_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260309_connections.shp", delete_dsn = T)
 #st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251210_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260309_systems.shp", delete_dsn = T)
 #st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.gpkg", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251210_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260309_sources.shp", delete_dsn = T)
 #st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.gpkg", delete_dsn = T)
 ```
