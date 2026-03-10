@@ -22,7 +22,7 @@ knitr::opts_knit$set(root.dir = here())
 
 Processed network data
 ```{r}
-network = read.csv("Data/Outputs/20251209_network_joined.csv")
+network = read.csv("Data/Outputs/20260309_network_joined.csv")
 ```
 
 
