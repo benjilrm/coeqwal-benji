@@ -314,7 +314,8 @@ rm(network_w_source_id, network_pwsids_w_gw_variables_excl_consecutive_connectio
 
 Pull in manually reviewed project columns and override existing value for these cases. Otherwise, keep existing value.
 ```{r}
-reviewed_swp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251014_swp_systems_w_changes.csv")
+reviewed_swp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251014_swp_systems_w_changes.csv")%>%
+  mutate(swp = ifelse(Source == "Kern River" & PWSID == "CA1510040", 0, swp))
 reviewed_cvp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251015_cvp_systems_w_changes.csv")
 
 reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
@@ -391,9 +392,6 @@ trace_sources <- function(network) {
   
   return(network)}
 
-
-network_w_cleaned_swp_cvp
-
 # Run the function
 network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
   mutate(
@@ -426,6 +424,6 @@ network_w_looped_projects%>%
           sum = round(sum(average_source_usage)))%>%
   filter(sum != 100)
 
-write.csv(network_w_looped_projects, "Data/Outputs/20260309_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20260316_network_joined.csv", row.names = F)
 ```
 
