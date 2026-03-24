@@ -30,7 +30,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20260309_network_joined.csv")
+network = read.csv("Data/Outputs/20260316_network_joined.csv")
 ```
 
 
@@ -97,13 +97,8 @@ purchased_sources = network_clean %>%
 network_clean = network_clean %>%
   group_by(pwsid) %>%
   mutate(
-    any_purchased_system = ifelse(pwsid %in% purchased_sources, "Yes", any_purchased_system)) %>%
+    any_purchased_system = ifelse(pwsid %in% purchased_sources, "Yes", any_purchased_system))%>%
   ungroup()
-
-
-
-network_clean%>%
-  filter(system_name == "SAN FRANCISCO REGIONAL WATER SYSTEM" | source_name == "CA3810001")
 ```
 
 
@@ -246,16 +241,10 @@ connections_sf = network_w_lat_longs %>%
         c(source_lon, source_lat, system_lon, system_lat), 
         nrow = 2, 
         byrow = TRUE)))) %>%
-  st_as_sf(crs = wgs_crs)
+  st_as_sf(crs = wgs_crs)%>%
+  select(-c(any_swp_source:source_pwsid))
 
 rm(network_w_lat_longs)
-```
-
-
-```{r, eval = F}
-connections_sf%>%
-  filter(source_lat == system_lat & system_lon == source_lon)%>%
-  select(system_name, pwsid, system_lat, system_lon, source_name, source_type, source_lat, source_lon)
 ```
 
 ```{r, eval = F}
@@ -265,14 +254,12 @@ tm_shape(connections_sf)+
   tm_dots(fill = "coral2", size = 0.4)+
   tm_shape(jittered_sources)+
   tm_dots(fill = "skyblue3", size = 0.4)
-
-connections_sf
 ```
 
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260309_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260316_connections.shp", delete_dsn = T)
 #st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
 st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260309_systems.shp", delete_dsn = T)
