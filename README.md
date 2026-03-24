@@ -13,7 +13,7 @@ Scripts/
     │   ├── processing_for_arcgis_dashboard.Rmd      # Processing final master data into shapefiles for upload to ArcGIS Online
     │   └── processing_for_network_igraph.Rmd        # Processing final master data into igraph format
     └── 3. Network analysis
-        └── initial_network_exploration.Rmd           # Initial exploratory analysis and visualisations of network data in igraph
+        └── network_analysis.Rmd           # Calculation of network metrics, analysis, and visualisations of network data in igraph
 
 # Data Sources
 
