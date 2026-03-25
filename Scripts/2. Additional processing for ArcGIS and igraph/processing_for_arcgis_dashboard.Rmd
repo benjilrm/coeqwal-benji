@@ -52,12 +52,12 @@ network_clean = network%>%
       gw_compliant_w_dw_standards == 0 ~ "Groundwater access with no wells meeting MCL requirements",
       is.na(gw_access) ~ "No data"),
     system_size = case_when(
-      is.na(pop_served) ~ "NA (Wholesale Provider)",
-      pop_served > 100000 ~ " Very Large (>100,000)",
-      pop_served > 10000 ~ "Large (10,000-100,000)",
-      pop_served > 3300 ~ " Medium (3,300-10,000)",
-      pop_served > 500 ~ " Small (500-3,300)",
-      pop_served <= 500 ~ " Very Small (<500)"),
+      is.na(pop_served) ~ "6. NA (Wholesale Provider)",
+      pop_served > 100000 ~ "5. Very Large (>100,000)",
+      pop_served > 10000 ~ "4. Large (10,000-100,000)",
+      pop_served > 3300 ~ "3. Medium (3,300-10,000)",
+      pop_served > 500 ~ "2. Small (500-3,300)",
+      pop_served <= 500 ~ "1. Very Small (<500)"),
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
     cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
 
