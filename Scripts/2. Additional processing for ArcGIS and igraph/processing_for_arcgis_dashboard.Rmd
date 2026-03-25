@@ -46,11 +46,8 @@ network_clean = network%>%
   
   mutate(
     purchased = ifelse(purchased == 0, "No", "Yes"),
-    gw_access_text = case_when(
-      gw_access == 0 ~ "No groundwater",
-      gw_compliant_w_dw_standards == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
-      gw_compliant_w_dw_standards == 0 ~ "Groundwater access with no wells meeting MCL requirements",
-      is.na(gw_access) ~ "No data"),
+    gw_access_text = ifelse(
+      gw_access == 0 | gw_compliant_w_dw_standards == 0, "No drinkable groundwater", NA),
     system_size = case_when(
       is.na(pop_served) ~ "6. NA (Wholesale Provider)",
       pop_served > 100000 ~ "5. Very Large (>100,000)",
@@ -76,7 +73,7 @@ network_clean = network_clean%>%
          any_cvp_source = ifelse(any(cvp == "Yes"), "Yes", "No"),
          any_purchased_source = ifelse(any(purchased == "Yes"), "Yes", "No"),
          any_gw_source = case_when(
-           any(gw_access == "Groundwater access with no wells meeting MCL requirements") | any(gw_access == "No groundwater") ~ "No drinkable groundwater"))%>%
+           any(gw_access == "No drinkable groundwater") ~ "No drinkable groundwater"))%>%
   ungroup()%>%
   group_by(pwsid) %>%
   mutate(
@@ -166,7 +163,13 @@ Keep one row per system
 systems_sf = network_w_lat_longs%>%
   select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, system_size, any_swp_system, any_cvp_system, any_purchased_system)%>%
   unique()%>%
-  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
+  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
+  mutate(project = case_when(
+    any_swp_system == "Yes" & any_cvp_system == "Yes" ~ "Both",
+    any_swp_system == "Yes" & any_cvp_system == "No" ~ "SWP",
+    any_swp_system == "No" & any_cvp_system == "Yes" ~ "CVP",
+    T ~ NA))
+  
 ```
 
 ```{r, eval = F}
@@ -259,11 +262,10 @@ tm_shape(connections_sf)+
 # Export
 ```{r}
 st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/202603125_connections.shp", delete_dsn = T)
-#st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20251125_connections.gpkg", delete_dsn = T)
 
 st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260325_systems.shp", delete_dsn = T)
-#st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20251125_systems.gpkg", delete_dsn = T)
+st_write(systems_sf%>%filter(!is.na(project)), "Data/Outputs/Shapefiles for dashboard/20260325_project_systems.shp", delete_dsn = T)
 
 st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260325_sources.shp", delete_dsn = T)
-#st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20251125_sources.gpkg", delete_dsn = T)
 ```
+
