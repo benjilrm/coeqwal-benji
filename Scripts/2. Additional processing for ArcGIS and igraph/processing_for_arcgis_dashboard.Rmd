@@ -46,6 +46,7 @@ network_clean = network%>%
   
   mutate(
     purchased = ifelse(purchased == 0, "No", "Yes"),
+    source_type = ifelse(source_type == "Lake", "Lake/Reservoir", source_type),
     gw_access_text = case_when(
       gw_access == 0 ~ "No groundwater",
       gw_compliant_w_dw_standards == 1 ~ "Groundwater access with 1 or more well meeting MCL requirements",
@@ -167,7 +168,7 @@ rbind(
 Keep one row per system
 ```{r}
 systems_sf = network_w_lat_longs%>%
-  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, any_swp_system, any_cvp_system, any_purchased_system)%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_purchased_system)%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
   mutate(project = case_when(
@@ -274,5 +275,6 @@ st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260327_systems.shp
 
 st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260327_sources.shp", delete_dsn = T)
 ```
+
 
 
