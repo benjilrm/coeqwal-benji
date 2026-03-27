@@ -125,6 +125,8 @@ network_w_lat_longs = network_clean%>%
       source_name == "Lake Spaulding" ~ 39.33604519822352,
       source_name == "Lyons Reservoir" ~ 38.098002039789485,
       source_name == "Friant-Kern Canal" ~ 36.62401,
+      source_name == "Canyon Creek" ~ 39.2,
+      source_name == "San Joaquin River" ~ 37.95831775634314,
       T ~ source_lat),
     source_lon = case_when(
       source_name == "Lake Havasu" ~ -114.1686,
@@ -134,6 +136,8 @@ network_w_lat_longs = network_clean%>%
       source_name == "Lake Spaulding" ~ -120.63027515989987,
       source_name == "Lyons Reservoir" ~ -120.16573438405824,
       source_name == "Friant-Kern Canal" ~ -119.3066,
+      source_name == "Canyon Creek" ~ -120.8,
+      source_name == "San Joaquin River" ~ -121.35648835414098,
       T ~ source_lon))
 
 rm(network_clean)
@@ -170,14 +174,52 @@ Keep one row per system
 systems_sf = network_w_lat_longs%>%
   select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_purchased_system)%>%
   unique()%>%
+  st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
+```
+
+For any points that lie outside their relevant SABL polygons, choose a random point in the relevant SABL polygon instead, and overwrite network df so that connections also get updated.
+```{r}
+sabl = st_read("C:/Users/benji/Desktop/COEQWAL/calsim-outcomes/Inputs/SABL/System_Area_Boundary_Layer.shp")%>%
+  rename(pwsid = 1, sabl_system_name = 4)%>%
+  group_by(pwsid) %>%
+  slice_max(BOUNDARY_T == "Water Service Area", n = 1)%>%
+  select(pwsid)%>%
+  filter(pwsid %in% systems_sf$pwsid)%>%
+  mutate(in_sabl = 1)%>%
+  st_transform(ca_crs)
+
+outside = systems_sf%>%
+  st_transform(3310)%>%
+  st_join(., sabl%>%select(-pwsid), join = st_intersects)%>%
+  filter(is.na(in_sabl) & pwsid %in% sabl$pwsid)
+  
+sabl_points = sabl %>%
+  filter(pwsid %in% outside$pwsid & !st_is_empty(geometry)) %>%
+  st_point_on_surface(.) %>%
+  st_transform(wgs_crs)%>%
+  {tibble(
+    st_coordinates(.) %>% 
+      as.data.frame() %>%
+      rename(sabl_lon = X, sabl_lat = Y),
+    pwsid = .$pwsid)}
+
+network_w_lat_longs = sabl_points%>%
+  right_join(network_w_lat_longs)%>%
+  mutate(system_lat = ifelse(is.na(sabl_lat), system_lat, sabl_lat),
+         system_lon = ifelse(is.na(sabl_lon), system_lon, sabl_lon))%>%
+  select(-c(sabl_lat, sabl_lon))
+
+systems_sf = network_w_lat_longs%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_purchased_system)%>%
+  unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
   mutate(project = case_when(
     any_swp_system == "Yes" & any_cvp_system == "Yes" ~ "Both",
     any_swp_system == "Yes" & any_cvp_system == "No" ~ "SWP",
     any_swp_system == "No" & any_cvp_system == "Yes" ~ "CVP",
     T ~ NA))
-  
 ```
+
 
 ```{r, eval = F}
 tm_shape(systems_sf)+
