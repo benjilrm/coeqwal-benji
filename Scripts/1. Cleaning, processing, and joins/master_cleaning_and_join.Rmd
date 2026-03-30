@@ -20,7 +20,7 @@ knitr::opts_knit$set(root.dir = here())
 
 ## Network data
 ```{r}
-network_raw = read_excel("Data/Source/Network data/UpdateddataforBenji_March92026.xlsx", na = "NA")
+network_raw = read.csv("Data/Source/Network data/Networkdata_updatedMarch272026.csv", na = "NA")
 ```
 
 ## Override lat/longs
@@ -418,12 +418,6 @@ network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
 
 # Export
 ```{r}
-network_w_looped_projects%>%
-  group_by(pwsid)%>%
-  reframe(n_sources = n(),
-          sum = round(sum(average_source_usage)))%>%
-  filter(sum != 100)
-
-write.csv(network_w_looped_projects, "Data/Outputs/20260316_network_joined.csv", row.names = F)
+write.csv(network_w_looped_projects, "Data/Outputs/20260330_network_joined.csv", row.names = F)
 ```
 

@@ -30,7 +30,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20260316_network_joined.csv")
+network = read.csv("Data/Outputs/20260330_network_joined.csv")
 ```
 
 
@@ -310,12 +310,12 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260327_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260330_connections.shp", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260327_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260330_systems.shp", delete_dsn = T)
 #st_write(systems_sf%>%filter(!is.na(project)), "Data/Outputs/Shapefiles for dashboard/20260325_project_systems.shp", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260327_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260330_sources.shp", delete_dsn = T)
 ```
 
 
