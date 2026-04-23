@@ -317,7 +317,6 @@ tm_shape(connections_sf)+
 st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260423_connections.shp", delete_dsn = T)
 
 st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260423_systems.shp", delete_dsn = T)
-#st_write(systems_sf%>%filter(!is.na(project)), "Data/Outputs/Shapefiles for dashboard/20260325_project_systems.shp", delete_dsn = T)
 
 st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260423_sources.shp", delete_dsn = T)
 ```
