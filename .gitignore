@@ -2,6 +2,7 @@
 Data/**
 Inputs/
 Outputs/
+Manuscript outputs/**
 
 # But track the specific igraph file
 !Data/Outputs/20251124_network_igraph.Rdata
