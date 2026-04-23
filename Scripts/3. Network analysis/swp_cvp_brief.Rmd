@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
   library(tidyverse)   # Data wrangling
   library(here)        # File management
   library(readxl)      # Read excel files
+  library(sf)          # Spatial
   })})
 ```
 
@@ -175,5 +176,16 @@ table(combined%>%filter(swp == 1)%>%pull(at_risk))
 paste("% of swp systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
 paste("% of swp systems at-risk:", round(nrow(combined%>%filter(at_risk == "At-Risk" & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
 paste("% of swp systems failing:", round(nrow(combined%>%filter(failing == 1 & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
+```
+
+
+
+# Shapefile
+```{r}
+systems = st_read("Data/Outputs/Shapefiles for dashboard/20260423_systems.shp")%>%
+  select(pwsid, project)%>%
+  filter(!is.na(project))
+  
+st_write(systems, "Data/Outputs/Shapefiles for dashboard/20260423_swp_cvp_systems.shp", delete_dsn = T)
 ```
 
