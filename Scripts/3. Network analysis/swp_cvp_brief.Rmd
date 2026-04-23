@@ -18,3 +18,162 @@ knitr::opts_knit$set(root.dir = here())
 
 options(scipen = 999)
 ```
+
+# Import data
+
+Most recent version of network data
+```{r}
+network_data = read.csv("Data/Outputs/20260423_network_joined.csv")%>%
+  select(pwsid, swp_loop, cvp_loop, swp_direct, cvp_direct, pop_served)%>%
+  rename(swp = swp_loop, cvp = cvp_loop)%>%
+  mutate(any_project = ifelse(swp == 1 | cvp == 1, 1, 0),
+        swp_direct = replace_na(swp_direct, 0),
+        cvp_direct = replace_na(cvp_direct, 0),
+        size = ifelse(pop_served < 10000, "small", "large"))%>%
+  group_by(pwsid, pop_served, size)%>%
+  reframe(across(everything(), ~ifelse(any(.x == 1), 1, 0)))%>%
+  ungroup()
+```
+
+SAFER failing and at-risk systems
+
+Downloaded [here](https://data.ca.gov/dataset/safer-failing-and-at-risk-drinking-water-systems)
+```{r}
+safer = read.csv("Data/Source/SAFER at-risk systems/SAFER_RA.csv")%>%
+  rename(pwsid = 2, failing = 20, at_risk = 19, dac = 16, mhi = MHI)%>%
+  mutate(assessed = ifelse(at_risk == "Not Assessed", 0, 1),
+         at_risk = ifelse(at_risk == "Not Assessed", NA, at_risk),
+         failing = ifelse(failing == "Failing", 1, 0),
+         mhi = as.numeric(mhi))%>%
+  select(pwsid, at_risk, failing, dac, assessed, mhi)
+```
+
+# Join datasets
+```{r}
+combined = left_join(network_data, safer, by = "pwsid")
+```
+
+# Summary stats
+
+## Number of systems served
+```{r}
+paste("# of systems served by any project:", nrow(combined%>%filter(any_project == 1)))
+
+paste("# of systems served by SWP:", nrow(combined%>%filter(swp == 1)))
+paste("# of systems directly served by SWP:", nrow(combined%>%filter(swp_direct == 1)))
+paste("# of systems indirectly served by SWP:", nrow(combined%>%filter(swp == 1)) - nrow(combined%>%filter(swp_direct == 1)))
+
+paste("# of systems served by CVP:", nrow(combined%>%filter(cvp == 1)))
+paste("# of systems directly served by CVP:", nrow(combined%>%filter(cvp_direct == 1)))
+paste("# of systems indirectly served by CVP:", nrow(combined%>%filter(cvp == 1)) - nrow(combined%>%filter(cvp_direct == 1)))
+
+paste("# of systems served by both:", nrow(combined%>%filter(cvp == 1 & swp == 1)))
+```
+## Population served
+```{r}
+paste("pop served by any project:", sum(combined%>%filter(any_project == 1)%>%pull(pop_served), na.rm = T))
+
+paste("pop served by SWP:", sum(combined%>%filter(swp == 1)%>%pull(pop_served), na.rm = T))
+paste("pop served by CVP:", sum(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T))
+
+paste("pop served by both:", sum(combined%>%filter(cvp == 1 & swp == 1)%>%pull(pop_served), na.rm = T))
+```
+
+Summary stats by project:
+
+SWP
+```{r}
+min(combined%>%filter(swp == 1)%>%pull(pop_served), na.rm = T)
+median(combined%>%filter(swp == 1)%>%pull(pop_served), na.rm = T)
+mean(combined%>%filter(swp == 1)%>%pull(pop_served), na.rm = T)
+max(combined%>%filter(swp == 1)%>%pull(pop_served), na.rm = T)
+```
+
+cvp
+```{r}
+min(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T)
+median(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T)
+mean(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T)
+max(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T)
+```
+## MHI by project
+```{r}
+paste("Median MHI across CVP systems:", median(combined%>%filter(cvp == 1)%>%pull(mhi), na.rm = T))
+paste("Median MHI across SWP systems:", median(combined%>%filter(swp == 1)%>%pull(mhi), na.rm = T))
+```
+
+## Small systems
+```{r}
+paste("# of small systems served by any project:", nrow(combined%>%filter(any_project == 1 & size == "small")))
+paste("% of systems served by any project that are small:", round(nrow(combined%>%filter(any_project == 1 & size == "small"))/nrow(combined%>%filter(any_project == 1))*100))
+
+paste("# of small systems served by SWP:", nrow(combined%>%filter(swp == 1 & size == "small")))
+paste("% of systems served by SWP that are small:", round(nrow(combined%>%filter(swp == 1 & size == "small"))/nrow(combined%>%filter(swp == 1))*100))
+
+paste("# of small systems served by CVP:", nrow(combined%>%filter(cvp == 1 & size == "small")))
+paste("% of systems served by CVP that are small:", round(nrow(combined%>%filter(cvp == 1 & size == "small"))/nrow(combined%>%filter(cvp == 1))*100))
+
+```
+
+## Disadvantaged communities
+```{r}
+paste("# of DAC systems served by any project:", nrow(combined%>%filter(any_project == 1 & dac == "DAC")))
+paste("% of systems served by a project that are DAC:", round(nrow(combined%>%filter(any_project == 1 & dac == "DAC"))/nrow(combined%>%filter(any_project == 1))*100))
+```
+
+CVP
+```{r}
+paste("# of non-DAC systems served by cvp:", nrow(combined%>%filter(cvp == 1 & dac == "Non-DAC")))
+paste("% of systems served by cvp that are non-DAC:", round(nrow(combined%>%filter(cvp == 1 & dac == "Non-DAC"))/nrow(combined%>%filter(cvp == 1))*100))
+
+paste("# of DAC systems served by CVP:", nrow(combined%>%filter(cvp == 1 & dac == "DAC")))
+paste("% of systems served by CVP that are DAC:", round(nrow(combined%>%filter(cvp == 1 & dac == "DAC"))/nrow(combined%>%filter(cvp == 1))*100))
+
+paste("# of severe DAC systems served by CVP:", nrow(combined%>%filter(cvp == 1 & dac == "SDAC")))
+paste("% of systems served by CVP that are severe DAC:", round(nrow(combined%>%filter(cvp == 1 & dac == "SDAC"))/nrow(combined%>%filter(cvp == 1))*100))
+```
+
+SWP
+```{r}
+paste("# of non-DAC systems served by SWP:", nrow(combined%>%filter(swp == 1 & dac == "Non-DAC")))
+paste("% of systems served by SWP that are non-DAC:", round(nrow(combined%>%filter(swp == 1 & dac == "Non-DAC"))/nrow(combined%>%filter(swp == 1))*100))
+
+paste("# of DAC systems served by SWP:", nrow(combined%>%filter(swp == 1 & dac == "DAC")))
+paste("% of systems served by SWP that are DAC:", round(nrow(combined%>%filter(swp == 1 & dac == "DAC"))/nrow(combined%>%filter(swp == 1))*100))
+
+paste("# of severe DAC systems served by SWP:", nrow(combined%>%filter(swp == 1 & dac == "SDAC")))
+paste("% of systems served by SWP that are severe DAC:", round(nrow(combined%>%filter(swp == 1 & dac == "SDAC"))/nrow(combined%>%filter(swp == 1))*100))
+```
+
+## At-risk
+```{r}
+paste("# of systems assessed for risk:", nrow(combined%>%filter(assessed == 1)))
+paste("% of systems not assessed:", round(nrow(combined%>%filter(assessed == 0))/nrow(combined)*100))
+
+paste("% of systems at-risk or failing:", round(nrow(combined%>%filter(at_risk == "At-Risk" | failing == 1))/nrow(combined%>%filter(assessed == 1))*100))
+```
+
+CVP
+```{r}
+paste("# of CVP systems not assessed for risk:", nrow(combined%>%filter(assessed == 0 & cvp == 1)))
+paste("% of CVP systems not assessed:", round(nrow(combined%>%filter(assessed == 0 & cvp == 1))/nrow(combined%>%filter(cvp == 1))*100))
+
+table(combined%>%filter(cvp == 1)%>%pull(at_risk))
+
+paste("% of CVP systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & cvp == 1))/nrow(combined%>%filter(assessed == 1 & cvp == 1))*100))
+paste("% of CVP systems at-risk:", round(nrow(combined%>%filter(at_risk == "At-Risk" & cvp == 1))/nrow(combined%>%filter(assessed == 1 & cvp == 1))*100))
+paste("% of CVP systems failing:", round(nrow(combined%>%filter(failing == 1 & cvp == 1))/nrow(combined%>%filter(assessed == 1 & cvp == 1))*100))
+```
+
+SWP
+```{r}
+paste("# of swp systems not assessed for risk:", nrow(combined%>%filter(assessed == 0 & swp == 1)))
+paste("% of swp systems not assessed:", round(nrow(combined%>%filter(assessed == 0 & swp == 1))/nrow(combined%>%filter(swp == 1))*100))
+
+table(combined%>%filter(swp == 1)%>%pull(at_risk))
+
+paste("% of swp systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
+paste("% of swp systems at-risk:", round(nrow(combined%>%filter(at_risk == "At-Risk" & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
+paste("% of swp systems failing:", round(nrow(combined%>%filter(failing == 1 & swp == 1))/nrow(combined%>%filter(assessed == 1 & swp == 1))*100))
+```
+
