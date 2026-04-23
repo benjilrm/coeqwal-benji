@@ -30,7 +30,7 @@ set.seed(124)
 
 Cleaned & deduplicated network data
 ```{r}
-network = read.csv("Data/Outputs/20260330_network_joined.csv")
+network = read.csv("Data/Outputs/20260423_network_joined.csv")
 ```
 
 
@@ -161,7 +161,6 @@ rbind(
   reframe(n = n())%>%
   filter(pwsid %in% as.vector(network_w_lat_longs%>%filter(source_type == "PWS")%>%pull(source_name)))%>%
   filter(n > 1)
-  
 ```
 
 
@@ -179,7 +178,7 @@ systems_sf = network_w_lat_longs%>%
 
 For any points that lie outside their relevant SABL polygons, choose a random point in the relevant SABL polygon instead, and overwrite network df so that connections also get updated.
 ```{r}
-sabl = st_read("C:/Users/benji/Desktop/COEQWAL/calsim-outcomes/Inputs/SABL/System_Area_Boundary_Layer.shp")%>%
+sabl = st_read("C:/Users/benji/Desktop/COEQWAL/calsim-outcomes/Inputs/SABL/SABL/System_Area_Boundary_Layer.shp")%>%
   rename(pwsid = 1, sabl_system_name = 4)%>%
   group_by(pwsid) %>%
   slice_max(BOUNDARY_T == "Water Service Area", n = 1)%>%
@@ -203,10 +202,15 @@ sabl_points = sabl %>%
       rename(sabl_lon = X, sabl_lat = Y),
     pwsid = .$pwsid)}
 
-network_w_lat_longs = sabl_points%>%
-  right_join(network_w_lat_longs)%>%
+network_w_lat_longs = network_w_lat_longs%>%
+  left_join(sabl_points)%>%
   mutate(system_lat = ifelse(is.na(sabl_lat), system_lat, sabl_lat),
          system_lon = ifelse(is.na(sabl_lon), system_lon, sabl_lon))%>%
+  select(-c(sabl_lat, sabl_lon))%>%
+  
+  left_join(sabl_points, by = c("source_name" = "pwsid"))%>%
+  mutate(source_lat = ifelse(is.na(sabl_lat), source_lat, sabl_lat),
+         source_lon = ifelse(is.na(sabl_lon), source_lon, sabl_lon))%>%
   select(-c(sabl_lat, sabl_lon))
 
 systems_sf = network_w_lat_longs%>%
@@ -310,13 +314,14 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260330_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260423_connections.shp", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260330_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260423_systems.shp", delete_dsn = T)
 #st_write(systems_sf%>%filter(!is.na(project)), "Data/Outputs/Shapefiles for dashboard/20260325_project_systems.shp", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260330_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260423_sources.shp", delete_dsn = T)
 ```
+
 
 
 
