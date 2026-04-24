@@ -1,0 +1,114 @@
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(igraph)      # Network analysis
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+```
+
+# Import data
+
+Processed network data
+```{r}
+network = read.csv("Data/Outputs/20260423_network_joined.csv")
+```
+
+
+# Cleaning and processing
+
+- Remove columns we definitely don't need
+- Rename columns and reorder remaining columns
+- Convert any columns with 0/1 to No/Yes, or in the case of gw, combine both columns into one categorical column
+- Add new column for system size based on population served (thresholds provided by Kristin)
+- Clean up errors in source type column
+- Standardise all source lat/longs (there are currently different values for the same source)
+
+```{r}
+network_master = network%>%
+  mutate(
+    pop_served = na_if(pop_served, 0),
+    system_size = case_when(
+      is.na(pop_served) ~ NA,
+      pop_served > 100000 ~ "Very Large",
+      pop_served > 10000 ~ "Large",
+      pop_served > 3300 ~ "Medium",
+      pop_served > 500 ~ "Small",
+      pop_served <= 500 ~ "Very Small"),
+    system_size_agg = ifelse(pop_served <= 10000, "Small", "Large"))%>%
+    
+  select(c(system_name, pwsid, provider_type, source_name, source_type, purchased, average_source_usage:average_source_method, county:pop_served, system_size, system_size_agg, num_systems_served:num_sw_sources, gw_access:gw_compliant_w_dw_standards, swp_loop:cvp_loop))%>%
+  rename(swp = swp_loop, cvp = cvp_loop)
+
+rm(network)
+```
+
+
+# Create network data
+
+
+## Nodes 
+
+Systems
+Keep one row per system
+```{r}
+system_nodes = network_master%>%
+  select(system_name, pwsid, provider_type, county, state_classification, pop_served, system_size, system_size_agg,  num_sw_sources, gw_access, gw_compliant_w_dw_standards)%>%
+  unique()%>%
+  rename(id = pwsid)
+```
+
+Sources
+Keep one row per source
+```{r}
+source_nodes = network_master %>%
+  select(source_name, source_type, num_systems_served)%>%
+  unique()%>%
+  rename(id = source_name)
+```
+
+Combine
+```{r}
+all_nodes = full_join(source_nodes, system_nodes, by = "id")%>%
+  mutate(type = ifelse(is.na(system_name), "source", "system"))
+```
+
+
+## Edges
+
+Convert dataframe to igraph object (bipartite network). Add in all edge-related covariates
+```{r}
+network_edges = network_master%>%
+  select(source_name, pwsid)
+
+network = graph_from_data_frame(network_edges, vertices = all_nodes, directed = T)
+
+E(network)$average_source_usage = network_master$average_source_usage[match(
+  paste(network_master$source_name, network_master$pwsid, sep = "|"),
+  paste(ends(network, E(network))[,1], ends(network, E(network))[,2], sep = "|"))]
+```
+
+Check to make sure it's registered correctly in igraph as a bipartite network
+```{r}
+is_bipartite(network)
+```
+Great! Looks good to export
+
+# Export 
+
+Export igraph object as .Rdata
+```{r}
+save(network, all_nodes, file = "data for upload/20260423_network_igraph.Rdata")
+```
+

@@ -1,0 +1,853 @@
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(igraph)      # Network analysis
+  library(GGally)      # Exploratory scatter plots
+  library(psych)       # Summary stats
+  library(factoextra)  # K-means
+  library(tmap)        # Map
+  library(sf)          # Spatial analysis
+  library(mclust)      # Model-based clustering
+  library(ggradar)
+  library(scales)
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+
+options(scipen = 999)
+```
+
+# Import data
+
+## Network data
+Our cleaned and processed network data generated into an igraph object
+```{r}
+load("data for upload/20260330_network_igraph.Rdata")
+
+network_df = read.csv("Data/Outputs/20260330_network_joined.csv")
+``` 
+
+
+## Drought vulnerability
+
+We used this dataset of drought-vulnerable public water systems compiled by the Pacific Institute as part of [this](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA_Jan_2017.pdf) 2017 report. The data sources are also listed [here](https://pacinst.org/wp-content/uploads/2017/01/PI_DroughtAndEquityInCA-2017_Appendix1A_3.pdf). 
+```{r}
+pacific_vulnerability = read.csv("Data/Source/Small System Drought Vulnerability/Appendix-1B-Drought-Impacted-Public-Water-Systems.xlsx - DroughtImpactedPWS.csv")%>%
+  rename(pwsid = PWSID)%>%
+  select(pwsid)%>%
+  filter(pwsid != "")%>%
+  mutate(pacific_drought_vulnerable = 1)
+```
+
+Additional data provided by DWR to Kristin and sent via email on Jan 16, 2026.
+We have to manually look up and record PWSIDs for the system names that are in our network dataset
+```{r}
+dwr_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/Compiled DWR PRA impacted systems.xlsx")%>%
+  rename(system_name = 1)%>%
+  unique()%>%
+  mutate(
+    pwsid = case_when(
+      grepl("Banning Heights", system_name) ~ "CA3301031",
+      grepl("Bolinas", system_name) ~ "CA2110005",
+      grepl("Brooktrails", system_name) ~ "CA2310009",
+      grepl("Burnt", system_name) ~ "CA5304109",
+      grepl("Cachuma", system_name) ~ "CA4210028",
+      grepl("Camptonville", system_name) ~ "CA5800924",
+      grepl("Casitas", system_name) ~ "CA5601104",
+      grepl("Chemeketa", system_name) ~ "CA4300517",
+      grepl("Bragg", system_name) ~ "CA2310001",
+      grepl("Huron", system_name) ~ "CA1010044",
+      grepl("City of Lakeport", system_name) ~ "CA1710004",
+      grepl("Orange Cove", system_name) ~ "CA1010023",
+      grepl("Trinidad", system_name) ~ "CA1210018",
+      grepl("Ukiah", system_name) ~ "CA2310003",
+      grepl("Westmorland", system_name) ~ "CA1310008",
+      grepl("Clearlake", system_name) ~ "CA1710001",
+      grepl("Colonial Heights", system_name) ~ "CA3910002",
+      grepl("Lincoln Village", system_name) ~ "CA3910010",
+      grepl("Davenport", system_name) ~ "CA4400571",
+      grepl("El Toro", system_name) ~ "CA3010079",
+      grepl("Elk Creek", system_name) ~ "CA1100616",
+      grepl("18", system_name) ~ "CA1010051",
+      grepl("Groveland", system_name) ~ "CA5510009",
+      grepl("Garberville", system_name) ~ "CA1210008",
+      grepl("Harbor", system_name) ~ "CA1700568",
+      grepl("Inverness", system_name) ~ "CA2110001",
+      grepl("Irish", system_name) ~ "CA2310012",
+      grepl("Kettleman", system_name) ~ "CA1610009",
+      grepl("Konocti County", system_name) ~ "CA1710006",
+      grepl("La Cumbre", system_name) ~ "CA4210024",
+      grepl("North Marin", system_name) ~ "CA2110003",
+      grepl("Redwood Valley", system_name) ~ "CA2310008",
+      grepl("Springville", system_name) ~ "CA5410011",
+      grepl("Spring Valley Lake", system_name) ~ "CA1710018",
+      grepl("Lakeport", system_name) ~ "CA1710021",
+      grepl("Don Pedro", system_name) ~ "CA5510008",
+      grepl("Loma Mar", system_name) ~ "CA4100512",
+      grepl("Hidden Lakes", system_name) ~ "CA2000544",
+      grepl("Marygold", system_name) ~ "CA3610028",
+      grepl("Mount Konocti", system_name) ~ "CA1710014",
+      grepl("Mountain Gate", system_name) ~ "CA4510002",
+      grepl("Oceano", system_name) ~ "CA4010005",
+      grepl("Redway", system_name) ~ "CA1210011",
+      grepl("Rubio", system_name) ~ "CA1910140",
+      grepl("San Lorenzo", system_name) ~ "CA4410014",
+      grepl("Senior Canyon", system_name) ~ "CA5601117",
+      grepl("Sugarloaf", system_name) ~ "CA4500006",
+      grepl("Jones Valley", system_name) ~ "CA4510004",
+      grepl("Sierraville", system_name) ~ "CA4600018",
+      grepl("Stinson", system_name) ~ "CA2110004",
+      grepl("Tuolu", system_name) ~ "CA5510003",
+      grepl("Westhaven", system_name) ~ "CA1210024"))%>%
+  filter(!is.na(pwsid))%>%
+  select(-system_name)%>%
+  mutate(dwr_drought_vulnerable = 1)
+```
+
+And lastly, another drought vulnerability dataset from SWRCB
+```{r}
+swrcb_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/Filtered SWRCB PRA data.xlsx")%>%
+  select(PWS)%>%
+  rename(pwsid = 1)%>%
+  mutate(pwsid = paste("CA", pwsid, sep = ""),
+         swrcb_drought_vulnerable = 1)%>%
+  filter(pwsid %in% all_nodes$id)
+```
+
+Now we can combine the three. We'll consider a system drought vulnerable if it appears in any of the vulnerability datasets. 
+```{r}
+comb_vulnerability = full_join(dwr_vulnerability, swrcb_vulnerability, by = "pwsid")%>%
+  full_join(., pacific_vulnerability, by = "pwsid")%>%
+  mutate(across(where(is.numeric), ~replace_na(.x, 0)),
+         any_drought_vulnerable = 1)%>%
+  unique()
+
+rm(dwr_vulnerability, swrcb_vulnerability, pacific_vulnerability)
+```
+
+# Network visualisation
+```{r, eval = F}
+V(network)$color <- ifelse(V(network)$type == "source", "dodgerblue3","coral2")
+
+plot(network, 
+     layout = layout.kamada.kawai(network), 
+     vertex.label = NA, 
+     vertex.size = 5, 
+     vertex.frame.colour = "black", 
+     edge.arrow.size = .3, 
+     edge.wdith = 1.5)
+# Add legend
+legend(x = "topright",  # Position (can be "topleft", "topright", "bottomleft", "bottomright", etc.)
+       legend = c("Water Source", "Water System"),  # Labels
+       fill = c("dodgerblue3", "coral2"),  # Colors matching vertex colors
+       cex = 1,  # Legend size
+       title = "Node Type",  # Optional title
+       bty = "n")  # Optional: removes box around legend
+
+
+plot(network, 
+     layout = layout.fruchterman.reingold(network), 
+     vertex.label = NA, 
+     vertex.size = 5, 
+     vertex.frame.colour = "black", 
+     edge.arrow.size = .3, 
+     edge.wdith = 1.5)
+```
+
+# Calculating metrics
+
+## Centrality
+
+Calculate in, out, and total degree centrality for systems. Compile into one 'master' dataframe with system centralities 
+```{r}
+system_centrality = all_nodes%>%
+  filter(type == "system")%>%
+  rename(in_degree = num_sw_sources,
+         out_degree = num_systems_served,
+         pwsid = id)%>%
+  mutate(
+    out_degree = replace_na(out_degree, 0),
+    total_degree = in_degree + out_degree)%>%
+  arrange(-total_degree)%>%
+  select(pwsid, in_degree, out_degree, total_degree)
+```
+
+Calculate betweenness centrality - systems that are major redistribution hubs (ie: measure of centrality based on shortest paths that pass through a given node). Add to master dataframe.
+```{r}
+betweenness_all = betweenness(network, directed = TRUE)
+system_centrality$betweenness = betweenness_all[V(network)$type == "system"]
+
+rm(betweenness_all)
+```
+
+Out degree centrality for sources
+```{r}
+source_centrality = all_nodes%>%
+  rename(source_name = id, out_degree = num_systems_served)%>%
+  filter(type == "source")%>%
+  arrange(-out_degree)%>%
+  select(1:3)
+```
+
+## Path length
+
+Calculate shortest paths from sources to systems
+```{r}
+sources = V(network)[type == "source"]
+systems = V(network)[type == "system"]
+
+# Get shortest paths between all sources to all systems
+path_length_matrix = distances(network, v = sources, to = systems, mode = "out")
+#path_lengths = as.vector(path_length_matrix[is.finite(as.vector(path_length_matrix))])
+
+# Get shortest paths between all systems (for reachable systems calculation)
+system_to_system_matrix = distances(network, v = systems, to = systems, mode = "out")
+```
+
+Summary stats for sources' path lengths
+```{r}
+source_path_lengths = data.frame(
+  source_name = sources$name,
+  n_reachable_systems = apply(path_length_matrix, 1, function(x) sum(is.finite(x))))
+```
+
+Summary stats for systems' path lengths
+
+Right now, this is ONLY when systems are the final node on a path
+```{r}
+system_path_lengths = data.frame(
+  pwsid = systems$name,
+  mean_path_length = apply(path_length_matrix, 2, function(x) mean(x[is.finite(x)])),
+  median_path_length = apply(path_length_matrix, 2, function(x) median(x[is.finite(x)])),
+  max_path_length = apply(path_length_matrix, 2, function(x) max(x[is.finite(x)])),
+  min_path_length = apply(path_length_matrix, 2, function(x) min(x[is.finite(x)])),
+  n_reachable_sources = apply(path_length_matrix, 2, function(x) sum(is.finite(x))),
+  n_reachable_systems = apply(system_to_system_matrix, 1, function(x) sum(is.finite(x)) - 1)) %>%  # Subtract 1 to exclude self
+  arrange(-max_path_length)
+
+rm(path_length_matrix, system_to_system_matrix)
+```
+
+## Source diversity
+
+Calculate the HHI for each system based on the volume percentages assigned to each connection in our dataset. In order to do so, for systems where these percentages don't add up to 100%, we assume that the remaining percentage is groundwater. 
+```{r}
+# Calculate GW percentage for each system
+gw_rows = network_df %>%
+  group_by(pwsid) %>%
+  reframe(
+    source_name = "gw", 
+    source_type = "gw",
+    average_source_usage = 100 - sum(average_source_usage)) %>%
+  filter(average_source_usage > 0)
+
+# Combine with original data
+diversity_df = bind_rows(network_df, gw_rows)%>%
+  arrange(pwsid, source_name)%>%
+  group_by(pwsid)%>%
+  reframe(hhi = sum(average_source_usage^2))
+
+rm(gw_rows, systems, sources)
+```
+
+
+# Combine all metrics into one dataframe
+
+Join all system network metrics with system covariates. This can be used as the 'master file' for analysis.
+```{r}
+system_metrics_comb = left_join(system_centrality, system_path_lengths, by = "pwsid")%>%
+  left_join(., diversity_df, by = "pwsid")%>%
+  left_join(., all_nodes%>%
+              filter(type == "system")%>%
+              select(id, system_name:num_sw_sources, system_size, pop_served, gw_access:gw_compliant_w_dw_standards)%>%
+              rename(pwsid = id), 
+            by = "pwsid")%>%
+  left_join(., comb_vulnerability, by = "pwsid")%>%
+  mutate(across(c(swrcb_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, pacific_drought_vulnerable), ~ replace_na(., 0)))%>%
+  unique()
+  
+rm(diversity_df, system_centrality, system_path_lengths, comb_vulnerability)
+```
+
+Join all source network metrics as well
+```{r}
+source_metrics_comb = left_join(source_centrality, source_path_lengths, by = "source_name")
+  
+rm(source_centrality, source_path_lengths)
+```
+
+
+# Descriptives of network dataset
+For section 4.1 of manuscript
+
+## Nodes
+Basic numbers
+```{r}
+cat("Number of vertices:", vcount(network), "\n")
+cat("Number of systems:", sum(V(network)$type == "system"), "\n")
+cat("Number of sources:", sum(V(network)$type == "source"), "\n")
+```
+
+Source/system diagnostics
+```{r}
+table(source_metrics_comb$source_type)
+
+median(system_metrics_comb$in_degree)
+max(system_metrics_comb$in_degree)
+
+table(system_metrics_comb$gw_access)
+table(system_metrics_comb$gw_compliant_w_dw_standards)
+```
+Selling water
+```{r}
+#Systems that also sell water
+cat("Systems that also sell water:",  nrow(system_metrics_comb%>%filter(pwsid %in% network_df$source_id)))
+
+table(system_metrics_comb%>%filter(pwsid %in% network_df$source_id)%>%pull(provider_type))
+
+table(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id)%>%pull(provider_type))
+
+table(system_metrics_comb%>%
+  filter(system_size_agg == "Small" & provider_type == "Retail")%>%
+  mutate(seller = ifelse(pwsid %in% network_df$source_id, 1, 0))%>%
+  pull(seller))
+
+system_metrics_comb%>%
+  filter(system_size_agg == "Small" & provider_type == "Retail")%>%
+  mutate(seller = ifelse(pwsid %in% network_df$source_id, 1, 0))
+
+#Provider type among small systems
+table(system_metrics_comb%>%filter(system_size_agg == "Small")%>%pull(provider_type))
+```
+
+Overall network statistics
+```{r}
+cat("Number of edges:", ecount(network), "\n")
+cat("Network density:", round(edge_density(network, loops = FALSE), 4), "\n")
+cat("Transitivity:", round(transitivity(network, type = "global"), 4), "\n")
+
+# Basic centrality measures
+cat("Average degree:", round(mean(degree(network)), 2), "\n")
+cat("Median degree:", round(median(degree(network)), 2), "\n")
+cat("Average betweenness:", round(mean(betweenness(network)), 2), "\n")
+cat("Average closeness:", round(mean(closeness(network)), 4), "\n")
+
+cat("% sources with 1 connection:", round(length(which(source_metrics_comb$out_degree <= 1))/nrow(source_metrics_comb)*100, 2), "\n")
+cat("% systems with 1 connection:", round(length(which(system_metrics_comb$total_degree <= 1))/nrow(system_metrics_comb)*100, 1))
+```
+
+Summary stats on source type and connection-specific variables
+```{r}
+table(network_df$source_type)
+table(network_df$purchased)
+
+
+nrow(network_df%>%filter(swp_loop == 1 | cvp_loop == 1))
+table(network_df$swp_text)
+table(network_df$cvp_text)
+```
+
+Zooming in on system size and specifically small systems
+```{r}
+table(system_metrics_comb$system_size, useNA = "always")
+table(system_metrics_comb$system_size_agg, useNA = "always")
+
+#Small systems that also sell water
+cat("Small systems that also sell water:",  nrow(system_metrics_comb%>%filter(system_size_agg == "Small" & pwsid %in% network_df$source_id)))
+
+nrow(network_df%>%filter(!source_type %in% c("PWS", "Non-PWS wholesaler")))
+table(system_metrics_comb$provider_type)
+table(all_nodes%>%filter(type == "system")%>%pull(source_type), useNA = "always")
+
+summary(system_metrics_comb$in_degree)
+```
+
+
+
+
+# System analysis
+
+## Differences by size
+
+Generate summary stat tables for small systems, large systems, and all systems
+```{r}
+system_metrics_comb%>%
+  filter(pop_served <= 10000)%>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+system_metrics_comb%>%
+  filter(pop_served > 10000)%>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+system_metrics_comb%>%
+  select(in_degree, out_degree, betweenness, mean_path_length, hhi, n_reachable_sources, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+Statistical tests to see how these network metrics vary by small vs large systems
+```{r}
+wilcox.test(data = system_metrics_comb, in_degree ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, out_degree ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, betweenness ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, hhi ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, mean_path_length ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, n_reachable_sources ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, n_reachable_systems ~ system_size_agg)
+
+wilcox.test(data = system_metrics_comb, gw_access ~ system_size_agg)
+wilcox.test(data = system_metrics_comb, any_drought_vulnerable ~ system_size_agg)
+```
+
+Linear regression as robustness check. How network metrics vary by continuous variable (population served) indicating system size
+```{r}
+system_metrics_comb = system_metrics_comb%>%
+  mutate(pop_served_thou = pop_served/1000)
+
+summary(lm(hhi ~ pop_served_thou, data = system_metrics_comb))
+summary(lm(in_degree ~ pop_served_thou, data = system_metrics_comb))
+summary(lm(mean_path_length ~ pop_served_thou, data = system_metrics_comb))
+summary(lm(n_reachable_sources ~ pop_served_thou, data = system_metrics_comb))
+summary(lm(betweenness ~ pop_served_thou, data = system_metrics_comb))
+```
+
+
+
+## Differences by self-supplied
+
+First, we generate a binary variable for self-supplied or not. We consider a system to be self-supplied if it purchases <50% of the water volume it receives.
+```{r}
+self_supplied = network_df%>%
+  filter(purchased == 1)%>%
+  group_by(pwsid, purchased)%>%
+  reframe(percent_purchased = sum(average_source_usage))%>%
+  mutate(self_supplied = ifelse(percent_purchased < 50, 1, 0),
+         fully_self_supplied = ifelse(percent_purchased == 0, 1, 0))
+
+system_metrics_comb = system_metrics_comb%>%
+  left_join(., self_supplied, by = "pwsid")%>%
+  replace_na(list(self_supplied = 1, fully_self_supplied = 1, percent_purchased = 0))
+
+rm(self_supplied)
+```
+
+Summary statistics on self-supplied by system size
+```{r}
+system_metrics_comb %>%
+  filter(!is.na(system_size_agg)) %>%
+  group_by(system_size_agg) %>%
+  summarize(
+    n = n(),
+    self_supplied = mean(self_supplied) * 100,
+    fully_self_supplied = mean(fully_self_supplied) * 100,
+    drought_vulnerable = mean(any_drought_vulnerable) * 100) %>%
+  mutate(across(-c(system_size_agg, n), ~ round(., 1)))
+```
+
+Statistical tests to see if self-supplied varies significantly by system size
+```{r}
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$self_supplied)
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$fully_self_supplied)
+```
+
+For small systems specifcially, how does self-suppliance relate to drought vulnerability=
+```{r}
+small_system_metrics_comb = system_metrics_comb%>%
+  filter(system_size_agg == "Small")
+
+chisq.test(small_system_metrics_comb$any_drought_vulnerable, small_system_metrics_comb$self_supplied)
+
+wilcox.test(percent_purchased ~ self_supplied, data = small_system_metrics_comb)
+aggregate(any_drought_vulnerable ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+```
+
+How network metrics vary by self-supplied vs non-self-supplied
+```{r}
+wilcox.test(hhi ~ self_supplied, data = small_system_metrics_comb)
+aggregate(hhi ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(in_degree ~ self_supplied, data = small_system_metrics_comb)
+aggregate(in_degree ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ self_supplied, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ self_supplied, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(betweenness ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(betweenness ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
+```
+
+The same, but using fully-self-supplied as robustness check
+```{r}
+wilcox.test(hhi ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(hhi ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(in_degree ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(in_degree ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ fully_self_supplied, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ fully_self_supplied, data = small_system_metrics_comb, FUN = mean)
+```
+
+Among small systems, summary stats of network metrics by self-supplied vs non-self-supplied
+```{r}
+small_system_metrics_comb%>%
+  filter(self_supplied == 1)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+small_system_metrics_comb%>%
+  filter(self_supplied == 0)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+
+## Differences by drought impacted
+
+Quick test to see if drought vulnerability is different among small vs large systems
+```{r}
+chisq.test(system_metrics_comb$system_size_agg, system_metrics_comb$any_drought_vulnerable)
+```
+
+Tests for how network metrics vary by drought-vulnerable vs non-drought vulnerable
+```{r}
+wilcox.test(in_degree ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(in_degree ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(betweenness ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(betweenness ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(hhi ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(hhi ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ any_drought_vulnerable, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ any_drought_vulnerable, data = small_system_metrics_comb, FUN = mean)
+```
+Intersection between drought vulnerability and self-suppliance
+```{r}
+table(small_system_metrics_comb%>%filter(any_drought_vulnerable == 1)%>%pull(fully_self_supplied))
+```
+
+
+Mean # of reachable sources among systems that are both self-supplied and drought-vulnerable
+```{r}
+mean(small_system_metrics_comb%>%
+  filter(fully_self_supplied == 1 & any_drought_vulnerable == 1)%>%
+  pull(n_reachable_sources))
+```
+
+Among small systems, summary stats of network metrics by drought-vulnerable vs non-drought-vulnerable
+```{r}
+small_system_metrics_comb%>%
+  filter(any_drought_vulnerable == 1)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+small_system_metrics_comb%>%
+  filter(any_drought_vulnerable == 0)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+
+## Differences by gw access
+
+Tests for how network metrics vary by gw access vs no gw access
+```{r}
+wilcox.test(in_degree ~ gw_access, data = small_system_metrics_comb)
+aggregate(in_degree ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(betweenness ~ gw_access, data = small_system_metrics_comb)
+aggregate(betweenness ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(hhi ~ gw_access, data = small_system_metrics_comb)
+aggregate(hhi ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(mean_path_length ~ gw_access, data = small_system_metrics_comb)
+aggregate(mean_path_length ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_sources ~ gw_access, data = small_system_metrics_comb)
+aggregate(n_reachable_sources ~ gw_access, data = small_system_metrics_comb, FUN = mean)
+```
+
+Among small systems, summary stats of network metrics by gw access vs no gw access
+```{r}
+small_system_metrics_comb%>%
+  filter(gw_access == 1)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+small_system_metrics_comb%>%
+  filter(gw_access == 0)%>%
+  select(in_degree, betweenness, mean_path_length, hhi, n_reachable_sources)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+# Source metrics
+
+## Summary stats
+```{r}
+source_metrics_comb%>%
+  select(out_degree, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+
+## Differences by serving small vs large systems
+
+First, let's determine the primary system size each source serves. We use the median population served to determine if large systems or small systems are the primary recipients. 
+
+```{r}
+system_size_served = network_df%>%
+  group_by(source_name)%>%
+  reframe(median_pop_served = median(pop_served, na.rm = T))%>%
+  mutate(primary_system_size_served = ifelse(median_pop_served <= 10000, "Small", "Large"))
+
+source_metrics_comb = source_metrics_comb%>%
+  left_join(., system_size_served, by = "source_name")
+
+table(source_metrics_comb$primary_system_size_served)
+
+rm(system_size_served)
+```
+Now, we can make a quick statistical test to see to what extent our network metrics differ by self-supplied vs non-self-supplied systems.
+```{r}
+wilcox.test(out_degree ~ primary_system_size_served, data = source_metrics_comb)
+aggregate(out_degree ~ primary_system_size_served, data = source_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_systems ~ primary_system_size_served, data = source_metrics_comb)
+aggregate(n_reachable_systems ~ primary_system_size_served, data = source_metrics_comb, FUN = mean)
+```
+
+Summary stats of network metrics by sources that serve primarily small vs large systems
+```{r}
+source_metrics_comb%>%
+  filter(primary_system_size_served == "Small")%>%
+  select(out_degree, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+
+source_metrics_comb%>%
+  filter(primary_system_size_served == "Large")%>%
+  select(out_degree, n_reachable_systems)%>%
+  describe(quant = c(0.25, 0.75)) %>%
+  as.data.frame()%>%
+  rownames_to_column("variable")%>%
+  select(-c(vars, sd, trimmed, mad, range:se))
+```
+
+
+
+## Differences by serving drought-impacted vs non-drought-impacted systems
+
+First, we determine whether each source serves any drought-impacted system or not
+```{r}
+serve_drought_systems = network_df%>%
+  left_join(., system_metrics_comb%>%select(pwsid, any_drought_vulnerable), by = "pwsid")%>%
+  group_by(source_name)%>%
+  reframe(drought_system_served = ifelse(mean(any_drought_vulnerable)>= 0.5, 1, 0))
+
+source_metrics_comb = source_metrics_comb%>%
+  left_join(., serve_drought_systems, by = "source_name")
+
+table(source_metrics_comb$drought_system_served)
+length(which(source_metrics_comb$drought_system_served == 1))/nrow(source_metrics_comb)
+
+rm(serve_drought_systems)
+```
+Test for how network metrics vary by serving drought-impacted vs non-drought-impacted systems
+```{r}
+wilcox.test(out_degree ~ drought_system_served, data = source_metrics_comb)
+aggregate(out_degree ~ drought_system_served, data = source_metrics_comb, FUN = mean)
+
+wilcox.test(n_reachable_systems ~ drought_system_served, data = source_metrics_comb)
+aggregate(n_reachable_systems ~ drought_system_served, data = source_metrics_comb, FUN = mean)
+```
+
+# Community detection/clustering
+
+Assigning source metrics to each system (ex: mean out degree of source for each system)
+```{r}
+network_sparse = network_df%>%
+  select(pwsid, source_name)
+
+network_sparse_w_sources = network_sparse%>%
+  inner_join(., source_metrics_comb%>%select(source_name, out_degree, n_reachable_systems), by = "source_name")
+network_sparse_w_systems = network_sparse%>%
+  inner_join(., system_metrics_comb%>%select(pwsid, out_degree, n_reachable_systems), by = c("source_name" = "pwsid"))
+
+source_stats_aggregated = rbind(network_sparse_w_sources, network_sparse_w_systems)%>%
+  group_by(pwsid)%>%
+  reframe(mean_source_out_degree = mean(out_degree),
+          mean_source_n_reachable_systems = mean(n_reachable_systems))
+
+system_metrics_comb = system_metrics_comb%>%
+  left_join(., source_stats_aggregated, by = "pwsid")
+
+rm(network_sparse, network_sparse_w_sources, network_sparse_w_systems, source_stats_aggregated)
+```
+
+Trim dataset to just variables used for clustering
+```{r}
+# Select features for clustering
+features <- system_metrics_comb %>%
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, pacific_drought_vulnerable, dwr_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+
+small_system_features = small_system_metrics_comb%>%
+  select(-c(pwsid, system_size, pop_served, system_size_agg, self_supplied, fully_self_supplied, num_sw_sources, system_name:state_classification, purchased, swrcb_drought_vulnerable, pacific_drought_vulnerable, dwr_drought_vulnerable, any_drought_vulnerable, total_degree, median_path_length:min_path_length, gw_access:gw_compliant_w_dw_standards))
+```
+
+## Model-based clustering
+
+Perform model-based clustering (which automatically optimises # of clusters) and create summary table of mean metrics by cluster group
+```{r}
+mclust_result <- Mclust(small_system_features)
+
+summary(mclust_result)
+
+clusters = small_system_metrics_comb %>%
+  mutate(mclust_cluster = mclust_result$classification)%>%
+  select(-c(pwsid, total_degree, median_path_length:min_path_length, system_name:state_classification, system_size:num_sw_sources, dwr_drought_vulnerable:pacific_drought_vulnerable, purchased, gw_compliant_w_dw_standards))%>%
+  group_by(mclust_cluster)%>%
+  reframe(n = n(), 
+          across(everything(), ~ mean(.x, na.rm = TRUE)))
+```
+Create radar plot to visualise differences between cluster groupings
+```{r}
+vars_to_plot <- c("in_degree", "betweenness", "hhi", "gw_access", "percent_purchased")
+
+ggradar(clusters%>%
+          select(1, in_degree, betweenness, hhi, gw_access, percent_purchased)%>%
+          mutate(across(c(in_degree, betweenness), rescale),
+                 hhi = hhi/10000,
+                 percent_purchased = percent_purchased/100)%>%
+          rename("Source Redundancy" = in_degree, 
+                 "Embeddedness" = betweenness, 
+                 "Water Portfolio \n Diversity" = hhi, 
+                 "GW Access" = gw_access,
+                 "% Volume \n Purchased" = percent_purchased),
+        plot.extent.x.sf = 1.3,
+        #group.colours = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "coral1"),
+        group.point.size = 4,
+        grid.label.size = 0)+
+        labs(colour = "Cluster #")+
+        theme(
+          legend.position = "left", 
+          legend.title = element_text(size = 15), 
+          legend.text = element_text(size = 12))
+```
+
+
+## K-means clustering
+
+For k-means clustering, determine optimal number of clusters using elbow method
+```{r, eval = F}
+fviz_nbclust(small_system_features, kmeans, method = "wss") + 
+  labs(subtitle = "Elbow Method")
+```
+
+Perform k-means clustering and add cluster assignments back to df
+```{r}
+set.seed(123)
+k <- 2
+kmeans_result <- kmeans(small_system_features, centers = k, nstart = 5)
+
+small_system_metrics_comb$kmeans_cluster <- kmeans_result$cluster
+```
+
+Calculate percentiles for each cluster mean and create radar plot
+```{r}
+cluster_kmeans = small_system_metrics_comb%>%
+              group_by(kmeans_cluster)%>%
+              reframe(n = n(),
+                      across(where(is.numeric), mean, na.rm = T))
+
+cluster_kmeans_percentiles <- cluster_kmeans %>%
+  select(kmeans_cluster, all_of(vars_to_plot)) %>%
+  rowwise() %>%
+  mutate(across(all_of(vars_to_plot), 
+                ~ ecdf(small_system_metrics_comb[[cur_column()]])(.),
+                .names = "pctl_{.col}")) %>%
+  ungroup() %>%
+  select(kmeans_cluster, starts_with("pctl_"))
+
+
+cluster_kmeans%>%
+          select(1, in_degree, betweenness, hhi, gw_access, percent_purchased)%>%
+          mutate(across(c(in_degree, betweenness), rescale),
+                 hhi = hhi/10000,
+                 percent_purchased = percent_purchased/100)
+
+ggradar(cluster_kmeans%>%
+          select(1, in_degree, betweenness, hhi, gw_access, percent_purchased)%>%
+          mutate(across(c(in_degree, betweenness), rescale),
+                 hhi = hhi/10000,
+                 percent_purchased = percent_purchased/100)%>%
+          rename("Source Redundancy" = in_degree, 
+                 "Embeddedness" = betweenness, 
+                 "Water Portfolio \n Diversity" = hhi, 
+                 "GW Access" = gw_access,
+                 "% Volume \n Purchased" = percent_purchased),
+        plot.extent.x.sf = 1.3,
+        #group.colours = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "coral1"),
+        group.point.size = 4,
+        grid.label.size = 0)+
+        labs(colour = "Cluster #")+
+        theme(
+          legend.position = "left", 
+          legend.title = element_text(size = 15), 
+          legend.text = element_text(size = 12))
+```
