@@ -1,5 +1,5 @@
 # Overview
-This repository cleans, processes, and adds various columns to our dataset of connections between surface water sources and community drinking water systems.
+This repository compiles Consumer Confidence Reports and Urban Water Management Plans into a dataset of surface water sources, sales and transfers for California community water systems. Additional variables related to public water systems, surface water sources, and surface water sales/transfers were joined and/or calculated using further datasets (see 'External Data Sources' below). The final dataset was converted into both an igraph object (facilitating network analysis on the dataset--see subfolder '4. Analysis') and into shapefiles (one for each of systems, sources, and connections) for upload to an interactive dashboard in ArcGIS Online, which you can find [here](https://bit.ly/CA_watersources_network). 
 
 # Structure and Navigation
 The 'Scripts/' folder contains all relevant code. Run scripts based on numerical order of subfolders (and of scripts within folders). When unnumbered within a folder, scripts can be run in any given order.
