@@ -102,7 +102,13 @@ max(combined%>%filter(cvp == 1)%>%pull(pop_served), na.rm = T)
 ## MHI by project
 ```{r}
 paste("Median MHI across CVP systems:", median(combined%>%filter(cvp == 1)%>%pull(mhi), na.rm = T))
+paste("Min MHI across CVP systems:", min(combined%>%filter(cvp == 1)%>%pull(mhi), na.rm = T))
+paste("Max MHI across CVP systems:", max(combined%>%filter(cvp == 1)%>%pull(mhi), na.rm = T))
+
+
 paste("Median MHI across SWP systems:", median(combined%>%filter(swp == 1)%>%pull(mhi), na.rm = T))
+paste("Min MHI across SWP systems:", min(combined%>%filter(swp == 1)%>%pull(mhi), na.rm = T))
+paste("Max MHI across SWP systems:", max(combined%>%filter(swp == 1)%>%pull(mhi), na.rm = T))
 ```
 
 ## Small systems
@@ -154,6 +160,8 @@ paste("# of systems assessed for risk:", nrow(combined%>%filter(assessed == 1)))
 paste("% of systems not assessed:", round(nrow(combined%>%filter(assessed == 0))/nrow(combined)*100))
 
 paste("% of systems at-risk or failing:", round(nrow(combined%>%filter(at_risk == "At-Risk" | failing == 1))/nrow(combined%>%filter(assessed == 1))*100))
+
+paste("% of systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & failing == 0))/nrow(combined%>%filter(assessed == 1))*100))
 ```
 
 CVP
