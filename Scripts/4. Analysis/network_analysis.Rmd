@@ -33,9 +33,9 @@ options(scipen = 999)
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("data for upload/20260330_network_igraph.Rdata")
+load("Data/Outputs/20260521_network_igraph.Rdata")
 
-network_df = read.csv("Data/Outputs/20260330_network_joined.csv")
+network_df = read.csv("Data/Outputs/20260511_network_joined.csv")
 ``` 
 
 
