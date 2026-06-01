@@ -21,6 +21,9 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 ```{r}
 network_raw = read.csv("Data/Source/Network data/Updated network data for Benji code June 1.csv", na = "NA")
+
+network_raw%>%
+  filter(pwsid %in% c("CA1009023", "CA1009179"))
 ```
 
 ## Override lat/longs
@@ -315,8 +318,10 @@ rm(network_w_source_id, network_pwsids_w_gw_variables_excl_consecutive_connectio
 Pull in manually reviewed project columns and override existing value for these cases. Otherwise, keep existing value.
 ```{r}
 reviewed_swp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251014_swp_systems_w_changes.csv")%>%
-  mutate(swp = ifelse(Source == "Kern River" & PWSID == "CA1510040", 0, swp))
-reviewed_cvp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251015_cvp_systems_w_changes.csv")
+  mutate(swp = ifelse(Source == "Kern River" & PWSID == "CA1510040", 0, swp))%>%
+  filter(!PWSID %in% c("CA1009179", "CA1009023"))
+reviewed_cvp = read.csv("Data/Source/Network data/SWP & CVP checks - 20251015_cvp_systems_w_changes.csv")%>%
+  filter(!PWSID %in% c("CA1009179", "CA1009023"))
 
 reviewed_all = rbind(reviewed_swp, reviewed_cvp)%>%
   filter(System_name != "FOLSOM, CITY OF - MAIN")%>% # Remove row that was edited by Kristin in Box spreadsheet
