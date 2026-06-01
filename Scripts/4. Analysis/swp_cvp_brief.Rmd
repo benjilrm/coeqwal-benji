@@ -24,7 +24,7 @@ options(scipen = 999)
 
 Most recent version of network data
 ```{r}
-network_data_raw = read.csv("Data/Outputs/20260511_network_joined.csv")
+network_data_raw = read.csv("Data/Outputs/20260601_network_joined.csv")
 
 network_data = network_data_raw%>%
   filter(state_classification == "C")%>%
@@ -208,12 +208,12 @@ paste("% of swp systems failing or at-risk:", round(nrow(combined%>%filter(swp =
 
 # Shapefile
 ```{r}
-systems = st_read("Data/Outputs/Shapefiles for dashboard/20260515_systems.shp")%>%
+systems = st_read("Data/Outputs/Shapefiles for dashboard/20260601_systems.shp")%>%
   select(pwsid, project)%>%
   filter(!is.na(project))%>%
   left_join(., network_data_raw%>%select(pwsid, state_classification)%>%unique(), by = "pwsid")%>%
   filter(state_classification == "C")
   
-st_write(systems, "Data/Outputs/Shapefiles for dashboard/20260515_swp_cvp_systems.shp", delete_dsn = T)
+st_write(systems, "Data/Outputs/Shapefiles for dashboard/20260601_swp_cvp_systems.shp", delete_dsn = T)
 ```
 
