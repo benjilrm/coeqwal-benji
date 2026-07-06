@@ -21,9 +21,6 @@ knitr::opts_knit$set(root.dir = here())
 ## Network data
 ```{r}
 network_raw = read.csv("Data/Source/Network data/Updated network data for Benji code June 1.csv", na = "NA")
-
-network_raw%>%
-  filter(pwsid %in% c("CA1009023", "CA1009179"))
 ```
 
 ## Override lat/longs
@@ -425,4 +422,54 @@ network_w_looped_projects <- trace_sources(network_w_cleaned_swp_cvp)%>%
 ```{r}
 write.csv(network_w_looped_projects, "Data/Outputs/20260601_network_joined.csv", row.names = F)
 ```
+
+
+
+```{r}
+colorado_list = c("CA1910087", "CA3710042")
+
+# Function to trace sources back to original Colorado River systems
+trace_back_to_colorado <- function(system_id, network_data, colorado_list, visited = c()) {
+  
+  # Prevent infinite loops
+  if (system_id %in% visited) return(0)
+  visited <- c(visited, system_id)
+  
+  # Check if this system is directly in the Colorado list
+  if (system_id %in% colorado_list) return(1)
+  
+  # Get the sources this system purchases from
+  sources <- network_data %>%
+    filter(pwsid == system_id) %>%
+    pull(source_id)
+  
+  # If no sources, return FALSE
+  if (length(sources) == 0) return(0)
+  
+  # Recursively check each source
+  any(sapply(sources, function(src) {
+    trace_back_to_colorado(src, network_data, colorado_list, visited)}))}
+
+# Apply to your data
+result <- read.csv("Data/Outputs/20260601_network_joined.csv") %>%
+  filter(colorado_text != "No") %>%
+  select(1:2, source_name, source_id, source_type, purchased, colorado_direct, colorado_loop, colorado_text) %>%
+  mutate(direct = ifelse(pwsid %in% colorado_list, 1, 0))%>%
+  # Add recursive trace
+  rowwise() %>%
+  mutate(traces_to_colorado = trace_back_to_colorado(pwsid, ., colorado_list)) %>%
+  ungroup() 
+  
+
+write.csv(result%>%arrange(system_name)%>%filter(direct == 0 & !traces_to_colorado), 
+  "Data/Outputs/Manual checks/20260701_colorado_river_checks.csv", row.names = F)
+
+length(unique(result$system_name))
+
+
+
+result%>%
+  filter(pwsid == "CA1300579")
+```
+
 
