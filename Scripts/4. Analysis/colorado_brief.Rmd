@@ -1,0 +1,146 @@
+
+
+# Set up
+
+Import packages
+```{r}
+suppressPackageStartupMessages({
+  suppressWarnings({
+  library(tidyverse)   # Data wrangling
+  library(here)        # File management
+  library(readxl)      # Read excel files
+  library(sf)          # Spatial
+  })})
+```
+
+Set settings and universal variables
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = here())
+
+options(scipen = 999)
+```
+
+# Import data
+
+Most recent version of network data
+```{r}
+network_data_raw = read.csv("Data/Outputs/20260601_network_joined.csv")
+
+network_data = network_data_raw%>%
+  filter(state_classification == "C")%>%
+  select(pwsid, colorado_loop, pop_served)%>%
+  rename(colorado = colorado_loop)%>%
+  mutate(size = ifelse(pop_served < 10000, "small", "large"))%>%
+  group_by(pwsid, pop_served, size)%>%
+  reframe(across(everything(), ~ifelse(any(.x == 1), 1, 0)))%>%
+  ungroup()
+```
+
+SAFER failing and at-risk systems
+
+Downloaded [here](https://data.ca.gov/dataset/safer-failing-and-at-risk-drinking-water-systems)
+```{r}
+safer = read.csv("Data/Source/SAFER at-risk systems/SAFER_RA.csv")%>%
+  rename(pwsid = 2, failing = 20, at_risk = 19, dac = 16, mhi = MHI)%>%
+  mutate(assessed = ifelse(at_risk == "Not Assessed", 0, 1),
+         at_risk = ifelse(at_risk == "Not Assessed", NA, at_risk),
+         failing = ifelse(failing == "Failing", 1, 0),
+         mhi = as.numeric(mhi),
+         any_dac = ifelse(dac %in% c("DAC", "SDAC"), 1, 0))%>%
+  select(pwsid, at_risk, failing, dac, any_dac, assessed, mhi)
+```
+
+# Join datasets
+```{r}
+combined = left_join(network_data, safer, by = "pwsid")
+```
+
+# Summary stats
+
+## Number of systems served
+```{r}
+paste("# of systems served by colorado:", nrow(combined%>%filter(colorado == 1)))
+```
+
+## Population served
+```{r}
+paste("pop served by colorado:", sum(combined%>%filter(colorado == 1)%>%pull(pop_served), na.rm = T))
+```
+
+Summary stats:
+```{r}
+min(combined%>%filter(colorado == 1)%>%pull(pop_served), na.rm = T)
+median(combined%>%filter(colorado == 1)%>%pull(pop_served), na.rm = T)
+mean(combined%>%filter(colorado == 1)%>%pull(pop_served), na.rm = T)
+max(combined%>%filter(colorado == 1)%>%pull(pop_served), na.rm = T)
+```
+
+## MHI 
+```{r}
+paste("Median MHI across colorado systems:", median(combined%>%filter(colorado == 1)%>%pull(mhi), na.rm = T))
+paste("Min MHI across colorado systems:", min(combined%>%filter(colorado == 1)%>%pull(mhi), na.rm = T))
+paste("Max MHI across colorado systems:", max(combined%>%filter(colorado == 1)%>%pull(mhi), na.rm = T))
+```
+
+## Small systems
+```{r}
+paste("# of small systems served by colorado:", nrow(combined%>%filter(colorado == 1 & size == "small")))
+paste("% of systems served by colorado that are small:", round(nrow(combined%>%filter(colorado == 1 & size == "small"))/nrow(combined%>%filter(colorado == 1))*100))
+```
+
+## Disadvantaged communities
+
+colorado
+```{r}
+paste("# of non-DAC systems served by colorado:", nrow(combined%>%filter(colorado == 1 & dac == "Non-DAC")))
+paste("% of systems served by colorado that are non-DAC:", round(nrow(combined%>%filter(colorado == 1 & dac == "Non-DAC"))/nrow(combined%>%filter(colorado == 1))*100))
+
+paste("# of DAC systems served by colorado:", nrow(combined%>%filter(colorado == 1 & any_dac == 1)))
+paste("% of systems served by colorado that are DAC:", round(nrow(combined%>%filter(colorado == 1 & any_dac == 1))/nrow(combined%>%filter(colorado == 1))*100))
+
+paste("# of severe DAC systems served by colorado:", nrow(combined%>%filter(colorado == 1 & dac == "SDAC")))
+paste("% of systems served by colorado that are severe DAC:", round(nrow(combined%>%filter(colorado == 1 & dac == "SDAC"))/nrow(combined%>%filter(colorado == 1))*100))
+```
+
+## At-risk
+```{r}
+paste("# of systems assessed for risk:", nrow(combined%>%filter(assessed == 1)))
+paste("% of systems not assessed:", round(nrow(combined%>%filter(assessed == 0))/nrow(combined)*100))
+
+paste("% of systems at-risk or failing:", round(nrow(combined%>%filter(at_risk == "At-Risk" | failing == 1))/nrow(combined%>%filter(assessed == 1))*100))
+
+paste("% of systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & failing == 0))/nrow(combined%>%filter(assessed == 1))*100))
+```
+
+colorado
+```{r}
+paste("# of colorado systems not assessed for risk:", nrow(combined%>%filter(assessed == 0 & colorado == 1)))
+paste("% of colorado systems not assessed:", round(nrow(combined%>%filter(assessed == 0 & colorado == 1))/nrow(combined%>%filter(colorado == 1))*100))
+
+table(combined%>%filter(colorado == 1)%>%pull(at_risk))
+
+paste("% of colorado systems potentially at-risk:", round(nrow(combined%>%filter(at_risk == "Potentially At-Risk" & colorado == 1))/nrow(combined%>%filter(assessed == 1 & colorado == 1))*100))
+paste("% of colorado systems at-risk:", round(nrow(combined%>%filter(at_risk == "At-Risk" & colorado == 1))/nrow(combined%>%filter(assessed == 1 & colorado == 1))*100))
+
+paste("# of colorado systems failing:", round(nrow(combined%>%filter(failing == 1 & colorado == 1))))
+paste("% of colorado systems failing:", round(nrow(combined%>%filter(failing == 1 & colorado == 1))/nrow(combined%>%filter(assessed == 1 & colorado == 1))*100))
+
+
+
+paste("# of colorado systems failing or at-risk:", nrow(combined%>%filter(colorado == 1 & (failing == 1  | at_risk == "At-Risk"))))
+paste("% of colorado systems failing or at-risk:", round(nrow(combined%>%filter(colorado == 1 & (failing == 1  | at_risk == "At-Risk")))/nrow(combined%>%filter(assessed == 1 & colorado == 1))*100))
+```
+
+
+# Shapefile
+```{r}
+systems = st_read("Data/Outputs/Shapefiles for dashboard/20260601_systems.shp")%>%
+  select(pwsid)%>%
+  right_join(., combined%>%select(pwsid, colorado)%>%unique(), by = "pwsid")%>%
+  filter(colorado == 1)
+
+systems
+  
+st_write(systems, "Data/Outputs/Shapefiles for dashboard/20260706_colorado_systems.shp", delete_dsn = T)
+```
+
