@@ -33,9 +33,9 @@ options(scipen = 999)
 ## Network data
 Our cleaned and processed network data generated into an igraph object
 ```{r}
-load("Data/Outputs/20260521_network_igraph.Rdata")
+load("Data/Outputs/20260601_network_igraph.Rdata")
 
-network_df = read.csv("Data/Outputs/20260511_network_joined.csv")
+network_df = read.csv("Data/Outputs/20260601_network_joined.csv")
 ``` 
 
 
@@ -115,6 +115,14 @@ dwr_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/C
   mutate(dwr_drought_vulnerable = 1)
 ```
 
+Drought vulnerability from USDA FOIA
+```{r}
+usda = read_excel("Data/Source/Small System Drought Vulnerability/Responsive Records 2026-RD-01323-F.xlsx")%>%
+  rename(pwsid = 2)%>%
+  select(pwsid)%>%
+  filter(!pwsid %in% comb_vulnerability$pwsid & grepl("CA", pwsid))
+```
+
 And lastly, another drought vulnerability dataset from SWRCB
 ```{r}
 swrcb_vulnerability = read_excel("Data/Source/Small System Drought Vulnerability/Filtered SWRCB PRA data.xlsx")%>%
@@ -129,12 +137,18 @@ Now we can combine the three. We'll consider a system drought vulnerable if it a
 ```{r}
 comb_vulnerability = full_join(dwr_vulnerability, swrcb_vulnerability, by = "pwsid")%>%
   full_join(., pacific_vulnerability, by = "pwsid")%>%
+  full_join(., usda, by = "pwsid")%>%
   mutate(across(where(is.numeric), ~replace_na(.x, 0)),
          any_drought_vulnerable = 1)%>%
   unique()
 
-rm(dwr_vulnerability, swrcb_vulnerability, pacific_vulnerability)
+rm(dwr_vulnerability, swrcb_vulnerability, pacific_vulnerability, usda)
 ```
+
+
+
+
+
 
 # Network visualisation
 ```{r, eval = F}
