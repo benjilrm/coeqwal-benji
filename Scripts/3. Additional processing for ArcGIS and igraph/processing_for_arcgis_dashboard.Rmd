@@ -31,6 +31,8 @@ set.seed(124)
 Cleaned & deduplicated network data
 ```{r}
 network = read.csv("Data/Outputs/20260601_network_joined.csv")
+
+network
 ```
 
 
@@ -65,9 +67,9 @@ network_clean = network%>%
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
     cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
 
-  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, colorado_loop, gw_access:gw_compliant_w_dw_standards, swp_direct:colorado_direct, colorado_text, connection_id, source_id, state_classification))%>%
+  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, gw_access:gw_compliant_w_dw_standards, swp_direct:colorado_direct, colorado_text, connection_id, source_id, state_classification))%>%
   
-  rename(swp = swp_loop, cvp = cvp_loop, gw_access = gw_access_text)
+  rename(swp = swp_loop, cvp = cvp_loop, colorado = colorado_loop, gw_access = gw_access_text)
 
 rm(network)
 ```
@@ -78,6 +80,7 @@ network_clean = network_clean%>%
   group_by(source_name)%>%
   mutate(any_swp_source = ifelse(any(swp == "Yes"), "Yes", "No"),
          any_cvp_source = ifelse(any(cvp == "Yes"), "Yes", "No"),
+         any_colorado_source = ifelse(any(colorado == "Yes"), "Yes", "No"),
          any_purchased_source = ifelse(any(purchased == "Yes"), "Yes", "No"),
          any_gw_source = case_when(
            any(gw_access_filter == "No drinkable groundwater") ~ "No drinkable groundwater"))%>%
@@ -86,6 +89,7 @@ network_clean = network_clean%>%
   mutate(
     any_swp_system = ifelse(any(swp == "Yes"), "Yes", "No"),
     any_cvp_system = ifelse(any(cvp == "Yes"), "Yes", "No"),
+    any_colorado_system = ifelse(any(colorado == "Yes"), "Yes", "No"),
     any_purchased_system = ifelse(any(purchased == "Yes"), "Yes", "No")) %>%
   ungroup()
 ```
@@ -314,11 +318,11 @@ tm_shape(connections_sf)+
 
 # Export
 ```{r}
-st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260601_connections.shp", delete_dsn = T)
+st_write(connections_sf, "Data/Outputs/Shapefiles for dashboard/20260811_connections.shp", delete_dsn = T)
 
-st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260601_systems.shp", delete_dsn = T)
+st_write(systems_sf, "Data/Outputs/Shapefiles for dashboard/20260811_systems.shp", delete_dsn = T)
 
-st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260601_sources.shp", delete_dsn = T)
+st_write(jittered_sources, "Data/Outputs/Shapefiles for dashboard/20260811_sources.shp", delete_dsn = T)
 ```
 
 
