@@ -65,9 +65,10 @@ network_clean = network%>%
       pop_served <= 500 ~ "1. Very Small (<500)"),
     system_size = str_remove(system_size_filter, "^\\d+\\.\\s"),
     swp_loop = ifelse(swp_loop == 0, "No", "Yes"),
-    cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"))%>%
+    cvp_loop = ifelse(cvp_loop == 0, "No", "Yes"),
+    colorado_loop = ifelse(colorado_loop == 0, "No", "Yes"))%>%
 
-  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, gw_access:gw_compliant_w_dw_standards, swp_direct:colorado_direct, colorado_text, connection_id, source_id, state_classification))%>%
+  select(-c(is_wholesaler, source_summary, combined_source_notes, combined_calsim_notes, x2020_ccr_percent:x2023_percent, summer_2025_cleaning, calsim_demandunit:calsim_notes_sept2025, gw_access:gw_compliant_w_dw_standards, swp_direct:colorado_direct, connection_id, source_id, state_classification))%>%
   
   rename(swp = swp_loop, cvp = cvp_loop, colorado = colorado_loop, gw_access = gw_access_text)
 
@@ -175,7 +176,7 @@ rbind(
 Keep one row per system
 ```{r}
 systems_sf = network_w_lat_longs%>%
-  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_purchased_system)%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_colorado_system, any_purchased_system)%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)
 ```
@@ -218,7 +219,7 @@ network_w_lat_longs = network_w_lat_longs%>%
   select(-c(sabl_lat, sabl_lon))
 
 systems_sf = network_w_lat_longs%>%
-  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_purchased_system)%>%
+  select(system_name, pwsid, system_lat, system_lon, provider_type, county, pop_served, num_sw_sources, gw_access, gw_access_filter, system_size, system_size_filter, any_swp_system, any_cvp_system, any_colorado_system, any_purchased_system)%>%
   unique()%>%
   st_as_sf(., coords = c("system_lon", "system_lat"), crs = wgs_crs)%>%
   mutate(project = case_when(
@@ -244,7 +245,7 @@ Exclude any PWS sources since these will be in the systems dataset.
 Convert to sf point object.
 ```{r}
 sources_sf = network_w_lat_longs%>%
-  select(source_name, source_type, num_systems_served, source_lat, source_lon, any_swp_source, any_cvp_source, any_purchased_source, any_gw_source) %>%
+  select(source_name, source_type, num_systems_served, source_lat, source_lon, any_swp_source, any_cvp_source, any_colorado_source, any_purchased_source, any_gw_source) %>%
   filter(!is.na(source_lat) & !source_type %in% c("PWS", "Non-PWS wholesaler")) %>%
   unique()%>%
   st_as_sf(coords = c("source_lon", "source_lat"), crs = wgs_crs)%>%
@@ -304,6 +305,8 @@ connections_sf = network_w_lat_longs %>%
   select(-c(any_swp_source:source_pwsid))
 
 rm(network_w_lat_longs)
+
+connections_sf
 ```
 
 ```{r, eval = F}
